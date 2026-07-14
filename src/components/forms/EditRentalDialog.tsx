@@ -61,6 +61,8 @@ const schema = z
     instaId: z.string().optional(),
     billMakingDate: z.string().optional(),
     confirmationChecked: z.boolean().optional(),
+    securityRefundNote: z.string().optional(),
+    securityRefundDeduction: z.coerce.number().min(0).optional(),
   })
   .refine((d) => new Date(d.endDate) >= new Date(d.startDate), {
     message: "End date must be after start date",
@@ -139,6 +141,7 @@ export function EditRentalDialog({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showInvoice, setShowInvoice] = useState(false);
+  const [itemEditors, setItemEditors] = useState<Record<string, any>>({});
 
   const [form, setForm] = useState({
     billNo: rental.billNo ?? "",
@@ -174,9 +177,18 @@ export function EditRentalDialog({
     instaId: (rental as any).instaId ?? "",
     billMakingDate: (rental as any).billMakingDate ? String((rental as any).billMakingDate).slice(0, 10) : today(),
     confirmationChecked: Boolean((rental as any).confirmationChecked),
+    securityRefundNote: (rental as any).securityRefundNote ?? "",
+    securityRefundDeduction: 0,
   });
 
   const [billNoLoading, setBillNoLoading] = useState(false);
+
+  const relatedRentals = useMemo(() => {
+    if (rental.billNo) {
+      return rentals.filter((r) => r.billNo === rental.billNo);
+    }
+    return [rental];
+  }, [rentals, rental.billNo, rental.id]);
 
   async function ensureBillNo() {
     if (form.billNo?.trim()) return;
@@ -213,17 +225,67 @@ export function EditRentalDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  const createItemEditorState = (entry: Rental) => {
+    const entryItem = getItem(entry.itemId);
+    const entryRate = getRentalAmount(
+      entry,
+      entryItem ? entryItem.pricePerDay * daysBetween(entry.startDate || today(), entry.endDate || today()) : 0,
+    );
+    return {
+      billNo: entry.billNo ?? "",
+      address: entry.address ?? "",
+      deliveryDate: entry.deliveryDate ? entry.deliveryDate.slice(0, 10) : today(),
+      deliveryTime: (entry as any).deliveryTime || "10:00",
+      deliveryTimePeriod: (entry as any).deliveryTimePeriod || "Morning",
+      startDate: entry.startDate ? entry.startDate.slice(0, 10) : today(),
+      endDate: entry.endDate ? entry.endDate.slice(0, 10) : today(),
+      endTime: (entry as any).endTime || "10:00",
+      endTimePeriod: (entry as any).endTimePeriod || "Morning",
+      rate: entryRate,
+      quantity: (entry as any).quantity ?? 1,
+      lostQuantity: (entry as any).lostQuantity ?? 0,
+      discount: entry.discount ?? 0,
+      advance: entry.advance ?? 0,
+      securityAmount: entry.securityAmount ?? 0,
+      securityReturned: Boolean((entry as any).securityReturned),
+      remarkCompleted: Boolean((entry as any).remarkCompleted),
+      remarkConfirmedBy: (entry as any).remarkConfirmedBy ?? "",
+      drycleanCompleted: Boolean((entry as any).drycleanCompleted),
+      drycleanCompletedBy: (entry as any).drycleanCompletedBy ?? "",
+      drycleanAdminConfirmed: Boolean((entry as any).drycleanAdminConfirmed),
+      drycleanAdminConfirmedBy: (entry as any).drycleanAdminConfirmedBy ?? "",
+      remark: entry.remark ?? "",
+      signature: (entry.signature as string | undefined) ?? "",
+      status: (entry.status ?? "upcoming") as RentalStatus,
+      ownerNumber: (entry as any).ownerNumber ?? "",
+      instaId: (entry as any).instaId ?? "",
+      billMakingDate: (entry as any).billMakingDate ? String((entry as any).billMakingDate).slice(0, 10) : today(),
+      confirmationChecked: Boolean((entry as any).confirmationChecked),
+    };
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const nextEditors = Object.fromEntries(
+      relatedRentals.map((entry) => [entry.id, createItemEditorState(entry)]),
+    );
+    setItemEditors(nextEditors);
+  }, [open, relatedRentals, getItem]);
+
   const isSafaRental = isSafaItem(rentalItem);
   const rentalQuantity = isSafaRental ? Math.max(1, Number(form.quantity) || 1) : 1;
   const subtotal = (form.rate || 0) * rentalQuantity;
   const totalBill = subtotal - form.discount + form.securityAmount;
 
-  const relatedRentals = useMemo(() => {
-    if (rental.billNo) {
-      return rentals.filter((r) => r.billNo === rental.billNo);
-    }
-    return [rental];
-  }, [rentals, rental.billNo, rental.id]);
+  const updateItemEditor = (entryId: string, patch: Partial<any>) => {
+    setItemEditors((current) => ({
+      ...current,
+      [entryId]: {
+        ...(current[entryId] || {}),
+        ...patch,
+      },
+    }));
+  };
 
   const computedPieces = useMemo(() => {
     let aggSubtotalLocal = 0;
@@ -233,39 +295,35 @@ export function EditRentalDialog({
     let aggSecurityRefundDueLocal = 0;
 
     const pieces = relatedRentals.map((r) => {
-      const isCurrent = r.id === rental.id; // This is the rental being edited
+      const editor = itemEditors[r.id] || createItemEditorState(r);
       const rItem = getItem(r.itemId);
-      const rStartDate = isCurrent ? form.startDate : (r.startDate || "");
-      const rEndDate = isCurrent ? form.endDate : (r.endDate || "");
-      const rDeliveryDate = isCurrent ? form.deliveryDate : (r.deliveryDate || "");
-      const rDeliveryTime = isCurrent ? form.deliveryTime : ((r as any).deliveryTime || "");
-      const rDeliveryTimePeriod = isCurrent ? form.deliveryTimePeriod : ((r as any).deliveryTimePeriod || "");
-      const rEndTime = isCurrent ? form.endTime : ((r as any).endTime || "");
-      const rEndTimePeriod = isCurrent ? form.endTimePeriod : ((r as any).endTimePeriod || "");
-      const rQuantity = isSafaItem(rItem)
-        ? (isCurrent ? rentalQuantity : Math.max(1, Number((r as any).quantity) || 1))
-        : 1;
-      const rLostQuantity = isCurrent ? form.lostQuantity : (Number((r as any).lostQuantity) || 0);
+      const rStartDate = editor.startDate;
+      const rEndDate = editor.endDate;
+      const rDeliveryDate = editor.deliveryDate;
+      const rDeliveryTime = editor.deliveryTime;
+      const rDeliveryTimePeriod = editor.deliveryTimePeriod;
+      const rEndTime = editor.endTime;
+      const rEndTimePeriod = editor.endTimePeriod;
+      const rQuantity = isSafaItem(rItem) ? Math.max(1, Number(editor.quantity) || 1) : 1;
+      const rLostQuantity = Number(editor.lostQuantity) || 0;
       const d = daysBetween(rStartDate, rEndDate);
-      const rRate = isCurrent
-        ? form.rate
-        : getRentalAmount(r, rItem ? rItem.pricePerDay * daysBetween(rStartDate, rEndDate) : 0);
+      const rRate = Number(editor.rate) || getRentalAmount(r, rItem ? rItem.pricePerDay * daysBetween(rStartDate, rEndDate) : 0);
       const rSubtotal = rRate * rQuantity;
 
       aggSubtotalLocal += rSubtotal;
-      aggDiscountLocal += isCurrent ? form.discount : (r.discount ?? 0);
-      aggAdvanceLocal += isCurrent ? (form.advance + form.additionalPayment) : (r.advance ?? 0);
-      const rSecurity = isCurrent ? form.securityAmount : (r.securityAmount ?? 0);
-      const rSecurityReturned = isCurrent ? form.securityReturned : Boolean((r as any).securityReturned);
+      aggDiscountLocal += Number(editor.discount) || 0;
+      aggAdvanceLocal += Number(editor.advance) || 0;
+      const rSecurity = Number(editor.securityAmount) || 0;
+      const rSecurityReturned = Boolean(editor.securityReturned);
       aggSecurityLocal += rSecurity;
 
-      const rStatus = isCurrent ? form.status : r.status;
+      const rStatus = editor.status;
       aggSecurityRefundDueLocal += rStatus === "returned" && rSecurityReturned ? 0 : rSecurity;
 
       return {
         r,
         rItem,
-        isCurrent,
+        isCurrent: false,
         rStartDate,
         rEndDate,
         rDeliveryDate,
@@ -294,7 +352,7 @@ export function EditRentalDialog({
       aggTotal: aggTotalLocal,
       aggFinalDue: aggFinalDueLocal,
     };
-  }, [relatedRentals, rental.id, getItem, form.startDate, form.endDate, form.deliveryDate, form.deliveryTime, form.deliveryTimePeriod, form.endTime, form.endTimePeriod, form.rate, rentalQuantity, form.lostQuantity, form.discount, form.advance, form.securityAmount, form.securityReturned, form.status]);
+  }, [relatedRentals, getItem, itemEditors, form.additionalPayment]);
 
   const piecesData = computedPieces.pieces;
   const aggSubtotal = computedPieces.aggSubtotal;
@@ -782,55 +840,65 @@ Thank you for choosing ARIHANT COLLECTION !`;
 
     setLoading(true);
     try {
-      const payload = {
-        billNo: parsed.data.billNo ?? "",
-        address: parsed.data.address ?? "",
-        deliveryDate: parsed.data.deliveryDate,
-        deliveryTime: parsed.data.deliveryTime,
-        deliveryTimePeriod: parsed.data.deliveryTimePeriod,
-        startDate: parsed.data.startDate,
-        endDate: parsed.data.endDate,
-        endTime: parsed.data.endTime,
-        endTimePeriod: parsed.data.endTimePeriod,
-        rate: parsed.data.rate,
-        quantity: parsed.data.quantity,
-        lostQuantity: parsed.data.lostQuantity,
-        discount: parsed.data.discount,
-        advance: parsed.data.advance + (parsed.data.additionalPayment || 0),
-        securityAmount: parsed.data.securityAmount,
-        securityReturned: parsed.data.securityReturned ?? false,
-        ...(parsed.data.securityReturned ? { securityReturnedAt: new Date().toISOString() } : {}),
-        remarkCompleted: parsed.data.remarkCompleted ?? false,
-        remarkConfirmedBy: parsed.data.remarkConfirmedBy ?? "",
-        drycleanCompleted: parsed.data.drycleanCompleted ?? false,
-        drycleanCompletedBy: parsed.data.drycleanCompletedBy ?? "",
-        drycleanAdminConfirmed: parsed.data.drycleanAdminConfirmed ?? false,
-        drycleanAdminConfirmedBy: parsed.data.drycleanAdminConfirmedBy ?? "",
-        ...(parsed.data.drycleanAdminConfirmed && !(rental as any).drycleanAdminConfirmed ? { drycleanAdminConfirmedAt: new Date().toISOString() } : {}),
-        remark: parsed.data.remark ?? "",
-        signature: parsed.data.signature ?? "",
-        status: parsed.data.status,
-        total: subtotal,
-        ownerNumber: parsed.data.ownerNumber ?? "",
-        instaId: parsed.data.instaId ?? "",
-        billMakingDate: parsed.data.billMakingDate ?? "",
-        confirmationChecked: parsed.data.confirmationChecked ?? false,
-      };
+      const updates = await Promise.all(
+        relatedRentals.map(async (entry) => {
+          const entryEditor = itemEditors[entry.id] || createItemEditorState(entry);
+          const entryItem = getItem(entry.itemId);
+          const entrySubtotal = (Number(entryEditor.rate) || 0) * (isSafaItem(entryItem) ? Math.max(1, Number(entryEditor.quantity) || 1) : 1);
+          const payload = {
+            billNo: parsed.data.billNo ?? entryEditor.billNo ?? "",
+            address: parsed.data.address ?? entryEditor.address ?? "",
+            deliveryDate: entryEditor.deliveryDate,
+            deliveryTime: entryEditor.deliveryTime,
+            deliveryTimePeriod: entryEditor.deliveryTimePeriod,
+            startDate: entryEditor.startDate,
+            endDate: entryEditor.endDate,
+            endTime: entryEditor.endTime,
+            endTimePeriod: entryEditor.endTimePeriod,
+            rate: entryEditor.rate,
+            quantity: entryEditor.quantity,
+            lostQuantity: entryEditor.lostQuantity,
+            discount: entryEditor.discount,
+            advance: entryEditor.advance,
+            securityAmount: entryEditor.securityAmount,
+            securityReturned: entryEditor.securityReturned ?? false,
+            ...(entryEditor.securityReturned ? { securityReturnedAt: new Date().toISOString() } : {}),
+            remarkCompleted: entryEditor.remarkCompleted ?? false,
+            remarkConfirmedBy: entryEditor.remarkConfirmedBy ?? "",
+            drycleanCompleted: entryEditor.drycleanCompleted ?? false,
+            drycleanCompletedBy: entryEditor.drycleanCompletedBy ?? "",
+            drycleanAdminConfirmed: entryEditor.drycleanAdminConfirmed ?? false,
+            drycleanAdminConfirmedBy: entryEditor.drycleanAdminConfirmedBy ?? "",
+            ...(entryEditor.drycleanAdminConfirmed && !(entry as any).drycleanAdminConfirmed ? { drycleanAdminConfirmedAt: new Date().toISOString() } : {}),
+            remark: entryEditor.remark ?? "",
+            signature: entryEditor.signature ?? "",
+            status: entryEditor.status,
+            total: entrySubtotal,
+            ownerNumber: entryEditor.ownerNumber ?? "",
+            instaId: entryEditor.instaId ?? "",
+            billMakingDate: entryEditor.billMakingDate ?? "",
+            confirmationChecked: entryEditor.confirmationChecked ?? false,
+          };
 
-      const updated = await updateRental(rental.id, payload);
-      if (rentalItem && isSafaRental) {
-        const previousLost = Number((rental as any).lostQuantity) || 0;
-        const nextLost = parsed.data.status === "returned" ? parsed.data.lostQuantity : 0;
-        const lostDelta = nextLost - previousLost;
-        if (lostDelta !== 0) {
-          const currentStock = Number((rentalItem as any).quantity) || 0;
-          await updateItem(rentalItem.id, {
-            quantity: Math.max(0, currentStock - lostDelta),
-          } as any);
-        }
-      }
+          const updated = await updateRental(entry.id, payload);
+          if (entryItem && isSafaItem(entryItem)) {
+            const previousLost = Number((entry as any).lostQuantity) || 0;
+            const nextLost = entryEditor.status === "returned" ? entryEditor.lostQuantity : 0;
+            const lostDelta = nextLost - previousLost;
+            if (lostDelta !== 0) {
+              const currentStock = Number((entryItem as any).quantity) || 0;
+              await updateItem(entryItem.id, {
+                quantity: Math.max(0, currentStock - lostDelta),
+              } as any);
+            }
+          }
+          return updated;
+        }),
+      );
+
+      const updated = updates[0];
       onUpdated?.(updated);
-      toast.success(`Rental ${rental.id} updated`);
+      toast.success(`${relatedRentals.length} rental item(s) updated`);
       setOpen(false);
     } catch (err) {
       console.error(err);
@@ -852,7 +920,7 @@ Thank you for choosing ARIHANT COLLECTION !`;
         <form onSubmit={handleSubmit} className="space-y-6 mt-2">
           {/* General Info Section */}
           <div className="space-y-4 rounded-lg border border-border bg-secondary/10 p-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border pb-2">General Info</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border pb-2">Bill Details</h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="billNo">Bill No</Label>
@@ -882,38 +950,7 @@ Thank you for choosing ARIHANT COLLECTION !`;
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="rate">Rate (INR)</Label>
-                <Input
-                  id="rate"
-                  type="number"
-                  min={0}
-                  value={form.rate}
-                  onChange={(e) => setForm((c) => ({ ...c, rate: Number(e.target.value) }))}
-                />
-              </div>
-              {isSafaRental && (
-                <div className="grid gap-2">
-                  <Label htmlFor="quantity">Safa Quantity</Label>
-                  <Input
-                    id="quantity"
-                    type="number"
-                    min={1}
-                    max={(rentalItem as any)?.quantity || undefined}
-                    value={form.quantity}
-                    onChange={(e) => setForm((c) => ({ ...c, quantity: Math.max(1, Number(e.target.value) || 1) }))}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Dates & Times Section */}
-          <div className="space-y-4 rounded-lg border border-border bg-secondary/10 p-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border pb-2">Dates & Times</h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="grid gap-2">
+              <div className="grid gap-2 sm:col-span-2">
                 <Label htmlFor="address">Delivery Address</Label>
                 <Input
                   id="address"
@@ -923,305 +960,335 @@ Thank you for choosing ARIHANT COLLECTION !`;
                   maxLength={200}
                 />
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="startDate">Start Date</Label>
-                <div className="relative">
-                  <Input value={formatDate(form.startDate)} readOnly className="pr-8 bg-background" />
-                  <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Bill Items Section */}
+          <div className="space-y-4 rounded-lg border border-border bg-secondary/10 p-4">
+            <div className="flex items-center justify-between border-b border-border pb-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Bill Items</h3>
+              <span className="text-[11px] text-muted-foreground">{relatedRentals.length} item(s)</span>
+            </div>
+            <div className="space-y-3">
+              {relatedRentals.map((entry) => {
+                const entryItem = getItem(entry.itemId);
+                const editor = itemEditors[entry.id];
+                if (!editor) return null; // Guard against rendering before editor state is ready
+                const entryIsSafa = isSafaItem(entryItem); 
+                const entryQty = entryIsSafa ? Math.max(1, Number(editor.quantity) || 1) : 1;
+                const entrySubtotal = (Number(editor.rate) || 0) * entryQty;
+                return (
+                  <div key={entry.id} className="rounded-md border border-border bg-background p-3 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {entryItem?.name || `Missing piece (${entry.itemId || "unknown"})`}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Item No: {entry.itemNo || entry.itemId}
+                        </p>
+                      </div>
+                      <div className="text-right text-xs text-muted-foreground shrink-0">
+                        <p className="font-semibold text-foreground">{formatCurrencyINR(entrySubtotal)}</p>
+                        <p>Qty: {entryQty}</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="grid gap-2">
+                        <Label>Rate (INR)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={editor.rate ?? 0}
+                          onChange={(e) => updateItemEditor(entry.id, { rate: Number(e.target.value) })}
+                        />
+                      </div>
+                      {entryIsSafa ? (
+                        <div className="grid gap-2">
+                          <Label>Quantity</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            value={editor.quantity ?? 1}
+                            onChange={(e) => updateItemEditor(entry.id, { quantity: Math.max(1, Number(e.target.value) || 1) })}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="grid gap-2">
+                        <Label>Delivery Date</Label>
+                        <Input
+                          type="date"
+                          value={editor.deliveryDate ?? today()}
+                          onChange={(e) => updateItemEditor(entry.id, { deliveryDate: e.target.value })}
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>Return Date</Label>
+                        <Input
+                          type="date"
+                          value={editor.endDate ?? today()}
+                          onChange={(e) => updateItemEditor(entry.id, { endDate: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="grid gap-2">
+                        <Label>Delivery Time</Label>
+                        <Input
+                          type="time"
+                          value={editor.deliveryTime || "10:00"}
+                          onChange={(e) => updateItemEditor(entry.id, { deliveryTime: e.target.value, deliveryTimePeriod: getTimePeriod(e.target.value) })}
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>Return Time</Label>
+                        <Input
+                          type="time"
+                          value={editor.endTime || "10:00"}
+                          onChange={(e) => updateItemEditor(entry.id, { endTime: e.target.value, endTimePeriod: getTimePeriod(e.target.value) })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="grid gap-2">
+                        <Label>Status</Label>
+                        <Select
+                          value={editor.status || "upcoming"}
+                          onValueChange={(value) => updateItemEditor(entry.id, { status: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(["upcoming", "active", "returned", "overdue"] as const).map((s) => (
+                              <SelectItem key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>Amount Paid</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={editor.advance ?? 0}
+                          onChange={(e) => updateItemEditor(entry.id, { advance: Number(e.target.value) })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="grid gap-2">
+                        <Label>Discount</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={editor.discount ?? 0}
+                          onChange={(e) => updateItemEditor(entry.id, { discount: Number(e.target.value) })}
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>Security Deposit</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={editor.securityAmount ?? 0}
+                          onChange={(e) => updateItemEditor(entry.id, { securityAmount: Number(e.target.value) })}
+                        />
+                      </div>
+                    </div>
+
+                    {entryIsSafa ? (
+                      <div className="grid gap-2">
+                        <Label>Lost Safa</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={entryQty}
+                          value={editor.lostQuantity ?? 0}
+                          onChange={(e) => updateItemEditor(entry.id, { lostQuantity: Math.max(0, Math.min(entryQty, Number(e.target.value) || 0)) })}
+                        />
+                      </div>
+                    ) : null}
+
+                    <div className="grid gap-2">
+                      <Label>Remark</Label>
+                      <Textarea
+                        rows={2}
+                        value={editor.remark ?? ""}
+                        onChange={(e) => updateItemEditor(entry.id, { remark: e.target.value })}
+                      />
+                    </div>
+
+                    {/* Actions & Status Section for each item */}
+                    <div className="space-y-3 pt-3 border-t border-border">
+                       <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Actions & Status</h4>
+                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                         <div className="grid gap-2">
+                           <Label>Item Ready</Label>
+                           <Button
+                             type="button"
+                             variant={editor.remarkCompleted ? "default" : "outline"}
+                             onClick={async () => {
+                               if (!editor.remarkCompleted) {
+                                 const name = window.prompt("Enter employee name to mark item as ready:");
+                                 if (name) {
+                                   const trimmed = name.trim();
+                                   updateItemEditor(entry.id, { remarkCompleted: true, remarkConfirmedBy: trimmed });
+                                   try {
+                                     await updateRental(entry.id, { remarkCompleted: true, remarkConfirmedBy: trimmed } as any);
+                                     toast.success("Item marked as ready");
+                                   } catch (err) {
+                                     toast.error("Failed to update status");
+                                   }
+                                 }
+                               } else {
+                                 updateItemEditor(entry.id, { remarkCompleted: false, remarkConfirmedBy: "" });
+                                 try {
+                                   await updateRental(entry.id, { remarkCompleted: false, remarkConfirmedBy: "" } as any);
+                                 } catch (err) {}
+                               }
+                             }}
+                             className={editor.remarkCompleted ? "bg-green-600 hover:bg-green-700 text-white" : ""}
+                           >
+                             {editor.remarkCompleted ? `Ready (${editor.remarkConfirmedBy})` : "Mark as Ready"}
+                           </Button>
+                         </div>
+                         <div className="grid gap-2">
+                           <Label>Dryclean Done</Label>
+                           <Button
+                             type="button"
+                             variant={editor.drycleanCompleted ? "default" : "outline"}
+                             onClick={async () => {
+                               if (!editor.drycleanCompleted) {
+                                 const name = window.prompt("Enter employee name to confirm dryclean:");
+                                 if (name) {
+                                   const trimmed = name.trim();
+                                   updateItemEditor(entry.id, { drycleanCompleted: true, drycleanCompletedBy: trimmed });
+                                   try {
+                                     await updateRental(entry.id, { drycleanCompleted: true, drycleanCompletedBy: trimmed } as any);
+                                     toast.success("Dryclean marked as complete");
+                                   } catch (err) {
+                                     toast.error("Failed to update status");
+                                   }
+                                 }
+                               } else {
+                                 updateItemEditor(entry.id, { drycleanCompleted: false, drycleanCompletedBy: "" });
+                                 try {
+                                   await updateRental(entry.id, { drycleanCompleted: false, drycleanCompletedBy: "" } as any);
+                                 } catch (err) {}
+                               }
+                             }}
+                             className={editor.drycleanCompleted ? "bg-green-600 hover:bg-green-700 text-white" : ""}
+                           >
+                             {editor.drycleanCompleted ? `Cleaned (${editor.drycleanCompletedBy})` : "Mark Dryclean"}
+                           </Button>
+                         </div>
+                         <div className="grid gap-2">
+                           <Label>Admin Confirm</Label>
+                           {/* This button is simplified as it was complex and tied to the main form state */}
+                           <Button type="button" variant="outline" disabled>Admin Confirm</Button>
+                         </div>
+                       </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Security Refund Section - visible only when all items are returned */}
+          {relatedRentals.every(r => (itemEditors[r.id] || createItemEditorState(r)).status === 'returned') && (
+            <div className="space-y-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-amber-600 border-b border-amber-500/20 pb-2">Security Refund</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="securityRefundDeduction">Deduction from Security (INR)</Label>
                   <Input
-                    id="startDate"
-                    type="date"
-                    value={form.startDate}
-                    onChange={(e) => setForm((c) => ({ ...c, startDate: e.target.value }))}
-                    onClick={(e) => {
-                      try {
-                        (e.target as HTMLInputElement).showPicker?.();
-                      } catch (err) {}
-                    }}
-                    className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer"
-                    required
+                    id="securityRefundDeduction"
+                    type="number"
+                    min={0}
+                    max={aggSecurity}
+                    value={form.securityRefundDeduction}
+                    onChange={(e) => setForm(c => ({ ...c, securityRefundDeduction: Number(e.target.value) }))}
+                    placeholder="e.g., for damages"
+                  />
+                </div>
+                <div className="grid gap-2 sm:col-span-2">
+                  <Label htmlFor="securityRefundNote">Refund Notes</Label>
+                  <Textarea
+                    id="securityRefundNote"
+                    value={form.securityRefundNote}
+                    onChange={(e) => setForm(c => ({ ...c, securityRefundNote: e.target.value }))}
+                    placeholder="Reason for deduction..."
+                    rows={2}
                   />
                 </div>
               </div>
-            </div>
+              <Button
+                type="button"
+                onClick={async () => {
+                  const totalSecurity = aggSecurity;
+                  const deduction = form.securityRefundDeduction || 0;
+                  const finalRefund = totalSecurity - deduction;
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-               <div className="grid gap-3 p-4 border border-border rounded-md bg-background shadow-sm">
-                  <Label className="font-semibold text-gold">Delivery</Label>
-                  <div className="grid gap-2">
-                    <Label className="text-xs text-muted-foreground">Date</Label>
-                    <div className="relative">
-                      <Input value={formatDate(form.deliveryDate)} readOnly className="pr-8" />
-                      <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                      <Input
-                        id="deliveryDate"
-                        type="date"
-                        value={form.deliveryDate}
-                        onChange={(e) => setForm((c) => ({ ...c, deliveryDate: e.target.value }))}
-                        onClick={(e) => {
-                          try {
-                            (e.target as HTMLInputElement).showPicker?.();
-                          } catch (err) {}
-                        }}
-                        className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer"
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="grid gap-2">
-                      <Label className="text-xs text-muted-foreground">Time</Label>
-                      <Input
-                        type="time"
-                        value={form.deliveryTime || ""}
-                        onChange={(e) => {
-                          const time = e.target.value;
-                          setForm(c => ({ ...c, deliveryTime: time, deliveryTimePeriod: getTimePeriod(time) }));
-                        }}
-                        required
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label className="text-xs text-muted-foreground">Period</Label>
-                      <Select
-                        value={form.deliveryTimePeriod}
-                        onValueChange={(v) => setForm((c) => ({ ...c, deliveryTimePeriod: v }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Period" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Morning">Morning</SelectItem>
-                          <SelectItem value="Afternoon">Afternoon</SelectItem>
-                          <SelectItem value="Evening">Evening</SelectItem>
-                          <SelectItem value="Night">Night</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-               </div>
-               
-               <div className="grid gap-3 p-4 border border-border rounded-md bg-background shadow-sm">
-                  <Label className="font-semibold text-gold">Return</Label>
-                  <div className="grid gap-2">
-                    <Label className="text-xs text-muted-foreground">Date</Label>
-                    <div className="relative">
-                      <Input value={formatDate(form.endDate)} readOnly className="pr-8" />
-                      <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                      <Input
-                        id="endDate"
-                        type="date"
-                        value={form.endDate}
-                        onChange={(e) => setForm((c) => ({ ...c, endDate: e.target.value }))}
-                        onClick={(e) => {
-                          try {
-                            (e.target as HTMLInputElement).showPicker?.();
-                          } catch (err) {}
-                        }}
-                        className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer"
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="grid gap-2">
-                      <Label className="text-xs text-muted-foreground">Time</Label>
-                      <Input
-                        type="time"
-                        value={form.endTime || ""}
-                        onChange={(e) => {
-                          const time = e.target.value;
-                          setForm(c => ({ ...c, endTime: time, endTimePeriod: getTimePeriod(time) }));
-                        }}
-                        required
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label className="text-xs text-muted-foreground">Period</Label>
-                      <Select
-                        value={form.endTimePeriod}
-                        onValueChange={(v) => setForm((c) => ({ ...c, endTimePeriod: v }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Period" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Morning">Morning</SelectItem>
-                          <SelectItem value="Afternoon">Afternoon</SelectItem>
-                          <SelectItem value="Evening">Evening</SelectItem>
-                          <SelectItem value="Night">Night</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-               </div>
+                  if (!window.confirm(`This will finalize the security refund.\n\nTotal Security: ${formatCurrencyINR(totalSecurity)}\nDeduction: ${formatCurrencyINR(deduction)}\nAmount to Refund: ${formatCurrencyINR(finalRefund)}\n\nThis action will mark security as returned for all items and add the deduction as a penalty. Continue?`)) {
+                    return;
+                  }
+
+                  setLoading(true);
+                  try {
+                    const updates = relatedRentals.map((entry, index) => {
+                      const patch: any = {
+                        securityReturned: true,
+                        securityReturnedAt: new Date().toISOString(),
+                        // Treat the refunded amount as an advance to clear it from the balance
+                        advance: (Number(itemEditors[entry.id]?.advance) || 0) + (Number(itemEditors[entry.id]?.securityAmount) || 0) - deduction,
+                        // Add deduction to penalty
+                        penalty: (Number(itemEditors[entry.id]?.penalty) || 0) + deduction,
+                      };
+                      if (index === 0) { // Add penalty and note to the first item
+                        patch.penalty = (Number(itemEditors[entry.id]?.penalty) || 0) + deduction;
+                        patch.securityRefundNote = form.securityRefundNote;
+                      }
+                      return updateRental(entry.id, patch);
+                    });
+                    await Promise.all(updates);
+                    toast.success("Security deposit refund processed successfully.");
+                    setOpen(false); // Close dialog on success
+                  } catch (err) {
+                    toast.error("Failed to process security refund.");
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+              >Process Security Refund</Button>
             </div>
-          </div>
+          )}
 
           {/* Actions & Status Section */}
-          <div className="space-y-4 rounded-lg border border-border bg-secondary/10 p-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border pb-2">Actions & Status</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="grid gap-2">
-                <Label>Item Ready</Label>
-                <Button
-                  type="button"
-                  variant={form.remarkCompleted ? "default" : "outline"}
-                  onClick={async () => {
-                    if (!form.remarkCompleted) {
-                      const name = window.prompt("Enter employee name to mark item as ready:");
-                      if (name) {
-                        const trimmed = name.trim();
-                        setForm((c) => ({ ...c, remarkCompleted: true, remarkConfirmedBy: trimmed }));
-                        try {
-                          const updated = await updateRental(rental.id, { remarkCompleted: true, remarkConfirmedBy: trimmed } as any);
-                          onUpdated?.(updated);
-                          toast.success("Item marked as ready");
-                        } catch (err) {
-                          toast.error("Failed to update status");
-                        }
-                      }
-                    } else {
-                      setForm((c) => ({ ...c, remarkCompleted: false, remarkConfirmedBy: "" }));
-                      try {
-                        const updated = await updateRental(rental.id, { remarkCompleted: false, remarkConfirmedBy: "" } as any);
-                        onUpdated?.(updated);
-                      } catch (err) {}
-                    }
-                  }}
-                  className={form.remarkCompleted ? "bg-green-600 hover:bg-green-700 text-white" : ""}
-                >
-                  {form.remarkCompleted ? `Ready (${form.remarkConfirmedBy})` : "Mark as Ready"}
-                </Button>
-              </div>
-              <div className="grid gap-2">
-                <Label>Dryclean Done</Label>
-                <Button
-                  type="button"
-                  variant={form.drycleanCompleted ? "default" : "outline"}
-                  onClick={async () => {
-                    if (!form.drycleanCompleted) {
-                      const name = window.prompt("Enter employee name to confirm dryclean:");
-                      if (name) {
-                        const trimmed = name.trim();
-                        setForm((c) => ({ ...c, drycleanCompleted: true, drycleanCompletedBy: trimmed }));
-                        try {
-                          const updated = await updateRental(rental.id, { drycleanCompleted: true, drycleanCompletedBy: trimmed } as any);
-                          onUpdated?.(updated);
-                          toast.success("Dryclean marked as complete");
-                        } catch (err) {
-                          toast.error("Failed to update status");
-                        }
-                      }
-                    } else {
-                      setForm((c) => ({ ...c, drycleanCompleted: false, drycleanCompletedBy: "" }));
-                      try {
-                        const updated = await updateRental(rental.id, { drycleanCompleted: false, drycleanCompletedBy: "" } as any);
-                        onUpdated?.(updated);
-                      } catch (err) {}
-                    }
-                  }}
-                  className={form.drycleanCompleted ? "bg-green-600 hover:bg-green-700 text-white" : ""}
-                >
-                  {form.drycleanCompleted ? `Cleaned (${form.drycleanCompletedBy})` : "Mark Dryclean"}
-                </Button>
-              </div>
-              <div className="grid gap-2">
-                <Label>Admin Confirm</Label>
-                <Button
-                  type="button"
-                  variant={form.drycleanAdminConfirmed ? "default" : "outline"}
-                  onClick={async () => {
-                    if (!form.drycleanAdminConfirmed) {
-                      const name = window.prompt("Enter Admin name to confirm:");
-                      if (name) {
-                        const trimmed = name.trim();
-                        setForm((c) => ({ ...c, drycleanAdminConfirmed: true, drycleanAdminConfirmedBy: trimmed }));
-                        try {
-                          const updated = await updateRental(rental.id, { drycleanAdminConfirmed: true, drycleanAdminConfirmedBy: trimmed, drycleanAdminConfirmedAt: new Date().toISOString() } as any);
-                          onUpdated?.(updated);
-                          toast.success("Admin confirmed dryclean");
-                        } catch (err) {
-                          toast.error("Failed to update status");
-                        }
-                      }
-                    } else {
-                      setForm((c) => ({ ...c, drycleanAdminConfirmed: false, drycleanAdminConfirmedBy: "" }));
-                      try {
-                        const updated = await updateRental(rental.id, { drycleanAdminConfirmed: false, drycleanAdminConfirmedBy: "" } as any);
-                        onUpdated?.(updated);
-                      } catch (err) {}
-                    }
-                  }}
-                  className={form.drycleanAdminConfirmed ? "bg-blue-600 hover:bg-blue-700 text-white" : ""}
-                >
-                  {form.drycleanAdminConfirmed ? `Confirmed (${form.drycleanAdminConfirmedBy})` : "Admin Confirm"}
-                </Button>
-              </div>
-            </div>
-          </div>
 
           {/* Payment & Notes Section */}
           <div className="space-y-4 rounded-lg border border-border bg-secondary/10 p-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border pb-2">Payment & Notes</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="advance">Amount Paid</Label>
-                <Input
-                  id="advance"
-                  type="number"
-                  min={0}
-                  value={form.advance}
-                  onChange={(e) => setForm((c) => ({ ...c, advance: Number(e.target.value) }))}
-                />
-              </div>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border pb-2">Additional Payments & Notes</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="additionalPayment">Additional Payment</Label>
                 <Input
                   id="additionalPayment"
                   type="number"
                   min={0}
-                  value={form.additionalPayment}
-                  placeholder="0"
-                  onChange={(e) => setForm((c) => ({ ...c, additionalPayment: Number(e.target.value) }))}
+                  value={form.additionalPayment || ""}
+                  placeholder="Enter amount..."
+                  onChange={(e) => setForm((c) => ({ ...c, additionalPayment: Number(e.target.value) || 0 }))}
                 />
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="discount">Discount</Label>
-                <Input
-                  id="discount"
-                  type="number"
-                  min={0}
-                  value={form.discount}
-                  onChange={(e) => setForm((c) => ({ ...c, discount: Number(e.target.value) }))}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="securityAmount">Security Deposit</Label>
-                <Input
-                  id="securityAmount"
-                  type="number"
-                  min={0}
-                  value={form.securityAmount}
-                  onChange={(e) => setForm((c) => ({ ...c, securityAmount: Number(e.target.value) }))}
-                />
-              </div>
-              {isSafaRental && (
-                <div className="grid gap-2">
-                  <Label htmlFor="lostQuantity">Lost Safa</Label>
-                  <Input
-                    id="lostQuantity"
-                    type="number"
-                    min={0}
-                    max={rentalQuantity}
-                    value={form.lostQuantity}
-                    onChange={(e) => setForm((c) => ({ ...c, lostQuantity: Math.max(0, Math.min(rentalQuantity, Number(e.target.value) || 0)) }))}
-                  />
-                </div>
-              )}
-            </div>
-            
-            <div className="grid gap-4 mt-2">
               <div className="grid gap-2">
                 <Label htmlFor="remark">Remark</Label>
                 <Textarea
@@ -1232,7 +1299,9 @@ Thank you for choosing ARIHANT COLLECTION !`;
                   rows={3}
                 />
               </div>
-              <div className="grid gap-2 sm:max-w-sm">
+            </div>
+            <div className="grid gap-4 mt-2">
+              <div className="grid gap-2 sm:max-w-xs">
                 <Label htmlFor="signature">Owner Signature</Label>
                 <div className="grid gap-2 rounded-md border border-border bg-background p-3">
                   {form.signature ? (
@@ -1259,92 +1328,152 @@ Thank you for choosing ARIHANT COLLECTION !`;
           </div>
 
           {/* Summary Footer */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-            <div className="rounded-md border border-border bg-secondary/40 px-4 py-3 flex items-center justify-between">
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
-                  Computed total (Bill)
-                </p>
-                <div className="flex items-center gap-3 mt-0.5">
-                  <p className="font-display text-2xl text-gold">
-                    {formatCurrencyINR(aggTotal)}
-                  </p>
-                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-500/10 text-red-500 border border-red-500/20">
-                    Balance: {formatCurrencyINR(aggFinalDue)}
-                  </span>
-                </div>
-                <div className="text-[11px] text-muted-foreground mt-1 space-y-0.5">
-                  <p>{relatedRentals.length} piece(s)</p>
-                  <p>Security refund: {formatCurrencyINR(aggSecurityRefundDue)}</p>
-                  {form.securityReturned ? <p className="text-emerald-600">Security clear</p> : null}
+          <div className="space-y-4 rounded-lg border border-gold/20 bg-gold/5 p-4">
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+              <div className="flex-1">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-gold border-b border-gold/20 pb-2">Bill Summary</h3>
+                <div className="mt-3 space-y-1 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Total Rent:</span>
+                    <span className="font-semibold">{formatCurrencyINR(aggSubtotal)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Discount:</span>
+                    <span className="font-semibold text-emerald-600">-{formatCurrencyINR(aggDiscount)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Security Deposit:</span>
+                    <span className="font-semibold">{formatCurrencyINR(aggSecurity)}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-border/50 pt-1 mt-1">
+                    <span className="text-muted-foreground">Total Bill:</span>
+                    <span className="font-semibold">{formatCurrencyINR(aggTotal)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Amount Paid:</span>
+                    <span className="font-semibold text-emerald-600">-{formatCurrencyINR(aggAdvance)}</span>
+                  </div>
+                  {form.additionalPayment > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Additional Payment:</span>
+                      <span className="font-semibold text-emerald-600">-{formatCurrencyINR(form.additionalPayment)}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between bg-red-500/10 px-2 py-1.5 rounded border border-red-500/20 mt-2">
+                    <span className="text-red-600 font-semibold">Balance Due:</span>
+                    <span className="font-bold text-red-600 text-lg">{formatCurrencyINR(aggFinalDue)}</span>
+                  </div>
+                  {aggSecurityRefundDue > 0 && (
+                    <div className="flex items-center justify-between pt-1 border-t border-border/50 mt-2">
+                      <span className="text-muted-foreground">Security Refund Due:</span>
+                      <span className="font-semibold text-amber-600">{formatCurrencyINR(aggSecurityRefundDue)}</span>
+                    </div>
+                  )}
                 </div>
               </div>
-              <div className="text-right text-xs text-muted-foreground">
-                Total Rent: {formatCurrencyINR(aggSubtotal)}
-                <br />
-                Total Bill: {formatCurrencyINR(aggTotal)}
+              <div className="sm:w-64 sm:text-right space-y-3">
+                <p className="text-[11px] text-muted-foreground leading-tight">
+                  {invoiceNote}
+                </p>
+                <div className="flex flex-wrap justify-end gap-1.5">
+                  <Button type="button" variant="outline" size="sm" className="h-7 text-xs px-2" onClick={shareOnWhatsApp}>WA</Button>
+                  <Button type="button" variant="outline" size="sm" className="h-7 text-xs px-2" onClick={printInvoice}>Print</Button>
+                  <Button type="button" variant="outline" size="sm" className="h-7 text-xs px-2" onClick={downloadBill}>PDF</Button>
+                </div>
               </div>
             </div>
+          </div>
 
-            <div className="rounded-md border border-border bg-secondary/40 px-4 py-3 flex flex-col justify-between">
-              <div className="space-y-3">
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground leading-tight">
-                    {invoiceNote}
-                  </p>
-                </div>
-                
-                {/* Total Rental Balance Breakdown */}
-                <div className="border-t border-border/50 pt-3 space-y-2">
-                  <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground font-semibold">
-                    Total Rental Balance
-                  </p>
-                  <div className="space-y-1 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Total Rental:</span>
-                      <span className="font-semibold text-gold">{formatCurrencyINR(aggSubtotal)}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Discount:</span>
-                      <span className="font-semibold text-emerald-600">-{formatCurrencyINR(aggDiscount)}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Security Deposit:</span>
-                      <span className="font-semibold text-gold">{formatCurrencyINR(aggSecurity)}</span>
-                    </div>
-                    <div className="flex items-center justify-between border-t border-border/50 pt-1">
-                      <span className="text-muted-foreground">Total Bill:</span>
-                      <span className="font-semibold text-gold">{formatCurrencyINR(aggTotal)}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Amount Paid:</span>
-                      <span className="font-semibold text-emerald-600">-{formatCurrencyINR(aggAdvance)}</span>
-                    </div>
-                    <div className="flex items-center justify-between bg-red-500/10 px-2 py-1 rounded border border-red-500/20">
-                      <span className="text-red-600 font-semibold">Balance Due:</span>
-                      <span className="font-bold text-red-600">{formatCurrencyINR(aggFinalDue)}</span>
-                    </div>
-                    {aggSecurityRefundDue > 0 && (
-                      <div className="flex items-center justify-between pt-1 border-t border-border/50">
-                        <span className="text-muted-foreground">Security Refund Due:</span>
-                        <span className="font-semibold text-amber-600">{formatCurrencyINR(aggSecurityRefundDue)}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
+          <div className="rounded-md border border-border bg-secondary/40 px-4 py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
+                Computed total (Bill)
+              </p>
+              <div className="flex items-center gap-3 mt-0.5">
+                <p className="font-display text-2xl text-gold">
+                  {formatCurrencyINR(aggTotal)}
+                </p>
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-500/10 text-red-500 border border-red-500/20">
+                  Balance: {formatCurrencyINR(aggFinalDue)}
+                </span>
+              </div>
+              <div className="text-[11px] text-muted-foreground mt-1 space-y-0.5">
+                <p>{relatedRentals.length} piece(s)</p>
+                <p>Security refund: {formatCurrencyINR(aggSecurityRefundDue)}</p>
+                {form.securityReturned ? <p className="text-emerald-600">Security clear</p> : null}
+              </div>
+            </div>
+            <div className="text-right text-xs text-muted-foreground">
+              Total Rent: {formatCurrencyINR(aggSubtotal)}
+              <br />
+              Total Bill: {formatCurrencyINR(aggTotal)}
+            </div>
+          </div>
+
+          <div className="rounded-md border border-border bg-secondary/40 px-4 py-3 flex flex-col justify-between">
+            <div className="space-y-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground leading-tight">
+                  {invoiceNote}
+                </p>
               </div>
               
-              <div className="flex flex-wrap justify-end gap-1.5 mt-3 pt-3 border-t border-border/50">
-                <Button type="button" variant="outline" size="sm" className="h-7 text-xs px-2" onClick={shareOnWhatsApp}>
-                  WA
-                </Button>
-                <Button type="button" variant="outline" size="sm" className="h-7 text-xs px-2" onClick={printInvoice}>
-                  Print
-                </Button>
-                <Button type="button" variant="outline" size="sm" className="h-7 text-xs px-2" onClick={downloadBill}>
-                  PDF
-                </Button>
+              {/* Total Rental Balance Breakdown */}
+              <div className="border-t border-border/50 pt-3 space-y-2">
+                <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground font-semibold">
+                  Total Rental Balance
+                </p>
+                <div className="space-y-1 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Total Rental:</span>
+                    <span className="font-semibold text-gold">{formatCurrencyINR(aggSubtotal)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Discount:</span>
+                    <span className="font-semibold text-emerald-600">-{formatCurrencyINR(aggDiscount)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Security Deposit:</span>
+                    <span className="font-semibold text-gold">{formatCurrencyINR(aggSecurity)}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-border/50 pt-1">
+                    <span className="text-muted-foreground">Total Bill:</span>
+                    <span className="font-semibold text-gold">{formatCurrencyINR(aggTotal)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Amount Paid:</span>
+                    <span className="font-semibold text-emerald-600">-{formatCurrencyINR(aggAdvance)}</span>
+                  </div>
+                  {form.additionalPayment > 0 && (
+                    <div className="flex items-center justify-between bg-red-500/10 px-2 py-1 rounded border border-red-500/20">
+                      <span className="text-muted-foreground">Additional Payment:</span>
+                      <span className="font-semibold text-emerald-600">-{formatCurrencyINR(form.additionalPayment)}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between bg-red-500/10 px-2 py-1 rounded border border-red-500/20">
+                    <span className="text-red-600 font-semibold">Balance Due:</span>
+                    <span className="font-bold text-red-600">{formatCurrencyINR(aggFinalDue)}</span>
+                  </div>
+                  {aggSecurityRefundDue > 0 && (
+                    <div className="flex items-center justify-between pt-1 border-t border-border/50">
+                      <span className="text-muted-foreground">Security Refund Due:</span>
+                      <span className="font-semibold text-amber-600">{formatCurrencyINR(aggSecurityRefundDue)}</span>
+                    </div>
+                  )}
+                </div>
               </div>
+            </div>
+            
+            <div className="flex flex-wrap justify-end gap-1.5 mt-3 pt-3 border-t border-border/50">
+              <Button type="button" variant="outline" size="sm" className="h-7 text-xs px-2" onClick={shareOnWhatsApp}>
+                WA
+              </Button>
+              <Button type="button" variant="outline" size="sm" className="h-7 text-xs px-2" onClick={printInvoice}>
+                Print
+              </Button>
+              <Button type="button" variant="outline" size="sm" className="h-7 text-xs px-2" onClick={downloadBill}>
+                PDF
+              </Button>
             </div>
           </div>
 

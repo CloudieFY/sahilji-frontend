@@ -254,7 +254,12 @@ export const rentalsApi = {
       body: JSON.stringify(data),
     });
   },
-  delete: (id: string) => apiRequest<{ message: string }>(`${API_BASE}/rentals/${id}`, { method: 'DELETE' }),
+  delete: (id: string, billNo?: string) => {
+    const url = billNo
+      ? `${API_BASE}/rentals/${id}?billNo=${encodeURIComponent(billNo)}`
+      : `${API_BASE}/rentals/${id}`;
+    return apiRequest<{ message: string }>(url, { method: 'DELETE' });
+  },
 };
 
 // Auth API

@@ -172,37 +172,6 @@ export function NewRentalDialog({
     reader.readAsDataURL(file);
   }
 
-  async function ensureBillNo() {
-    if (form.billNo?.trim()) return form.billNo;
-    setBillNoLoading(true);
-
-    // Find gaps and reuse the lowest available deleted bill number
-    const existingNos = rentals
-      .map((r) => r.billNo)
-      .filter(Boolean)
-      .map((b) => {
-        // Match either INV- or BILL- to smoothly handle both and find gaps
-        const match = String(b).match(/(?:INV|BILL)-(\d+)/i);
-        return match ? parseInt(match[1], 10) : 0;
-      })
-      .filter((n) => n > 0);
-
-    const sorted = Array.from(new Set(existingNos)).sort((a, b) => a - b);
-    let nextSeq = 1;
-    for (const num of sorted) {
-      if (num === nextSeq) {
-        nextSeq++;
-      } else if (num > nextSeq) {
-        break;
-      }
-    }
-    const generated = `INV-${String(nextSeq).padStart(4, "0")}`;
-
-    setForm((c) => ({ ...c, billNo: generated }));
-    setBillNoLoading(false);
-    return generated;
-  }
-
   async function shareOnWhatsApp() {
     toast.info("Generating PDF for WhatsApp...");
     try {
@@ -321,9 +290,8 @@ export function NewRentalDialog({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // Ensure billNo is filled automatically before validation/submission.
-    const finalBillNo = await ensureBillNo();
-    const parsed = schema.safeParse({ ...form, billNo: finalBillNo });
+    // Bill number is now generated on the backend if left empty.
+    const parsed = schema.safeParse(form);
 
     if (!parsed.success) {
       toast.error(parsed.error.issues[0]?.message ?? "Invalid input");
@@ -387,51 +355,43 @@ export function NewRentalDialog({
 
     setLoading(true);
     try {
-      // Create one rental record per piece (same billNo) as before,
-      // but force status to 'upcoming' and mark as final bill to avoid status-specific bills.
-      const rentalPromises = piecesData.map((p) => {
-        const ratio = piecesTotal > 0 ? p.lineTotal / piecesTotal : 1 / piecesData.length;
+      // One API call per bill: backend expects { pieces: [...] }
+      // We still prorate advance/discount/security across pieces via piece-level fields (backend distributes discount,
+      // and we pass advance/security per piece proportionally).
 
-        const payload: any = {
-          billNo: parsed.data.billNo,
-          address: parsed.data.address,
-          customerId: parsed.data.customerId,
-          advance: Math.round(parsed.data.advance * ratio),
-          discount: Math.round(parsed.data.discount * ratio),
-          securityAmount: Math.round(parsed.data.securityAmount * ratio),
-          securityReturned: false,
-          securityReturnedAt: null,
-          remark: p.remark || "",
-          signature: parsed.data.signature || "",
-          // force 'upcoming' so we don't create status-specific bills
-          status: "upcoming",
-          rate: p.rate,
-          quantity: p.quantity,
-          lostQuantity: 0,
+      const ratioBase = piecesTotal > 0 ? piecesTotal : piecesData.reduce((s, p) => s + (p.lineTotal || 0), 0) || piecesData.length;
+      const payload: any = {
+        customerId: parsed.data.customerId,
+        billNo: parsed.data.billNo,
+        address: parsed.data.address,
+        advance: parsed.data.advance,
+        discount: parsed.data.discount,
+        securityAmount: parsed.data.securityAmount,
+        signature: parsed.data.signature || "",
+        status: "upcoming",
+        pieces: piecesData.map((p) => {
+          const ratio = ratioBase > 0 ? (p.lineTotal || 0) / ratioBase : 1 / piecesData.length;
+          return {
+            itemId: p.itemId,
+            itemNo: p.itemNo,
+            deliveryDate: p.deliveryDate,
+            deliveryTimePeriod: p.deliveryTimePeriod,
+            penalty: 0,
+            endDate: p.endDate,
+            endTimePeriod: p.endTimePeriod,
+            rate: p.rate,
+            quantity: p.quantity,
+            remark: p.remark || "",
+            deliveryTime: p.deliveryTime,
+            endTime: p.endTime,
+          };
+        }),
+      };
 
-          itemId: p.itemId,
-          itemNo: p.itemNo,
-          deliveryDate: p.deliveryDate,
-          deliveryTime: p.deliveryTime,
-          deliveryTimePeriod: p.deliveryTimePeriod,
-          startDate: p.deliveryDate,
-          endDate: p.endDate,
-          endTime: p.endTime,
-          endTimePeriod: p.endTimePeriod,
-
-          total: p.lineTotal,
-          category: p.item?.category || "Uncategorized",
-          subcategory: (p.item as any)?.subcategory || "Uncategorized",
-          // mark so frontend/backend can recognize this was part of a final bill
-          isFinalBill: true,
-        };
-
-        return addRental(payload);
-      });
-
-      await Promise.all(rentalPromises);
+      await addRental(payload);
 
       toast.success(`Rental bill created for ${piecesData.length} piece(s)`);
+
       setForm({
         billNo: "",
         address: "",
@@ -491,7 +451,7 @@ export function NewRentalDialog({
                   <Input
                     id="billNo"
                     value={form.billNo}
-                    onChange={(e) => setForm({ ...form, billNo: e.target.value })}
+                    onChange={(e) => setForm((c) => ({ ...c, billNo: e.target.value }))}
                     placeholder={billNoLoading ? "Generating..." : "Auto-generated on submit"}
                     maxLength={40}
                   />

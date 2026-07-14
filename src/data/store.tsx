@@ -37,7 +37,7 @@ interface StoreState {
   ) => Promise<Customer>;
   addRental: (rental: Omit<Rental, "_id" | "id" | "customId" | "createdAt" | "updatedAt">) => Promise<Rental>;
   deleteCustomer: (id: string) => Promise<void>;
-  deleteRental: (id: string) => Promise<void>;
+  deleteRental: (id: string, billNo?: string) => Promise<void>;
   updateRental: (id: string, data: Partial<Rental>) => Promise<Rental>;
   updateItem: (id: string, data: Partial<Item>) => Promise<Item>;
   getItem: (id: string) => Item | undefined;
@@ -203,13 +203,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         console.info("[store] addRental data refreshed", transformed);
         return transformed;
       },
-      deleteRental: async (id) => {
-        console.info("[store] deleteRental started", { id });
-        await rentalsApi.delete(id);
-        console.info("[store] deleteRental backend success", { id });
-        setRentals((prev) => prev.filter((rental) => rental.id !== id));
+      deleteRental: async (id, billNo) => {
+        console.info("[store] deleteRental started", { id, billNo });
+        await rentalsApi.delete(id, billNo);
+        console.info("[store] deleteRental backend success", { id, billNo });
+        // Best-effort local cleanup: remove matching bill if present, else remove single rental.
+        if (billNo) {
+          setRentals((prev) => prev.filter((rental) => rental.billNo !== billNo));
+        } else {
+          setRentals((prev) => prev.filter((rental) => rental.id !== id));
+        }
         await refreshData();
-        console.info("[store] deleteRental state refreshed", { id });
+        console.info("[store] deleteRental state refreshed", { id, billNo });
       },
       updateItem: async (id, data) => {
         console.info("[store] updateItem started", { id, dataKeys: Object.keys(data || {}) });

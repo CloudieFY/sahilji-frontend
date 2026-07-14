@@ -23,19 +23,16 @@ function getDueAmount(rental: any, allRentals: any[] = []) {
     let aggTotal = 0;
     let aggAdvance = 0;
     for (const r of relatedRentals) {
-      aggTotal += (Number(r.total) || 0) + (Number(r.securityAmount) || 0) + (Number(r.penalty) || 0) - (Number(r.discount) || 0);
+      const subtotal = (Number((r as any).rate) || 0) * (Number((r as any).quantity) || 1);
+      const security = (r as any).securityReturned ? 0 : (Number(r.securityAmount) || 0);
+      aggTotal += subtotal + security + (Number(r.penalty) || 0) - (Number(r.discount) || 0);
       aggAdvance += Number(r.advance) || 0;
     }
     return Math.max(0, aggTotal - aggAdvance);
   }
-  return Math.max(
-    0,
-    (Number(rental.total) || 0) +
-      (Number(rental.securityAmount) || 0) +
-      (Number(rental.penalty) || 0) -
-      (Number(rental.discount) || 0) -
-      (Number(rental.advance) || 0),
-  );
+  const security = (rental as any).securityReturned ? 0 : (Number(rental.securityAmount) || 0);
+  const subtotal = (Number((rental as any).rate) || 0) * (Number((rental as any).quantity) || 1);
+  return Math.max(0, subtotal + security + (Number(rental.penalty) || 0) - (Number(rental.discount) || 0) - (Number(rental.advance) || 0));
 }
 
 export function ReturnItemsPage() {
@@ -138,8 +135,8 @@ export function ReturnItemsPage() {
                       <div>{rental.billNo || rental.id}</div>
                       {canSeeFinancials && (
                         <div className="mt-1.5 flex flex-col gap-0.5">
-                      <div className={`text-xs ${rental.status !== 'active' && dueAmount > 0 ? "text-destructive font-medium" : "text-muted-foreground font-normal"}`}>
-                        Due: {formatCurrencyINR(rental.status === 'active' ? 0 : dueAmount)}
+                      <div className={`text-xs ${dueAmount > 0 ? "text-destructive font-medium" : "text-muted-foreground font-normal"}`}>
+                        Due: {formatCurrencyINR(dueAmount)}
                           </div>
                       {(rental.securityAmount || 0) > 0 && !(rental as any).securityReturned && (
                             <div className="text-xs font-medium text-amber-600">

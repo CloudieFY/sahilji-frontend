@@ -47,25 +47,22 @@ const useNavigate = () => {
   };
 };
 
-function getDueAmount(rental: any, allRentals: any[] = []) {
-  if (rental.billNo && allRentals.length > 0) {
-    const relatedRentals = allRentals.filter((r) => r.billNo === rental.billNo);
-    let aggTotal = 0;
-    let aggAdvance = 0;
-    for (const r of relatedRentals) {
-      aggTotal += (Number(r.total) || 0) + (Number(r.securityAmount) || 0) + (Number(r.penalty) || 0) - (Number(r.discount) || 0);
-      aggAdvance += Number(r.advance) || 0;
-    }
-    return Math.max(0, aggTotal - aggAdvance);
+function getBillDueAmount(rentalsList: any[], allRentals: any[] = []) {
+  const relatedRentals = rentalsList.length > 0 && rentalsList[0]?.billNo && allRentals.length > 0
+    ? allRentals.filter((r) => r.billNo === rentalsList[0].billNo)
+    : rentalsList;
+
+  let aggTotal = 0;
+  let aggAdvance = 0;
+  for (const r of relatedRentals) {
+    // Recalculate total from rate and quantity for accuracy, as 'total' might be stale.
+    const subtotal = (Number((r as any).rate) || 0) * (Number((r as any).quantity) || 1);
+    const security = (r as any).securityReturned ? 0 : (Number(r.securityAmount) || 0);
+    aggTotal += subtotal + security + (Number(r.penalty) || 0) - (Number(r.discount) || 0);
+    aggAdvance += Number(r.advance) || 0;
   }
-  return Math.max(
-    0,
-    (Number(rental.total) || 0) +
-      (Number(rental.securityAmount) || 0) +
-      (Number(rental.penalty) || 0) -
-      (Number(rental.discount) || 0) -
-      (Number(rental.advance) || 0),
-  );
+  // Note: 'total' on the rental object itself is not used here to ensure we have the live calculated value.
+  return Math.max(0, aggTotal - aggAdvance);
 }
 
 export default function RentalsPage() {
@@ -90,7 +87,7 @@ export default function RentalsPage() {
   const filteredRentals = rentals.filter((r) => {
     const item = getItem(r.itemId);
     const customer = getCustomer(r.customerId);
-    const dueAmount = getDueAmount(r, rentals);
+    const dueAmount = getBillDueAmount([r], rentals);
     const searchable = [
       r.id,
       r.billNo,
@@ -121,45 +118,49 @@ export default function RentalsPage() {
       .toLowerCase();
     return !query || searchable.includes(query);
   });
+
+  const groupedBills = Array.from(
+    filteredRentals.reduce((groups, rental) => {
+      const key = rental.billNo ? rental.billNo : rental.id;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.rentals.push(rental);
+      } else {
+        groups.set(key, {
+          key,
+          rentals: [rental],
+          representative: rental,
+        });
+      }
+      return groups;
+    }, new Map<string, { key: string; rentals: typeof rentals; representative: (typeof rentals)[number] }>()).values(),
+  );
+
   const totals = {
-    active: filteredRentals.filter((r) => r.status === "active").length,
-    upcoming: filteredRentals.filter((r) => r.status === "upcoming").length,
-    overdue: filteredRentals.filter((r) => r.status === "overdue").length,
-    returned: filteredRentals.filter((r) => r.status === "returned").length,
+    active: groupedBills.filter((bill) => bill.representative.status === "active").length,
+    upcoming: groupedBills.filter((bill) => bill.representative.status === "upcoming").length,
+    overdue: groupedBills.filter((bill) => bill.representative.status === "overdue").length,
+    returned: groupedBills.filter((bill) => bill.representative.status === "returned").length,
   };
 
-  const getUniqueBillBalances = (rentalsList: typeof rentals) => {
-    const bills = new Set<string>();
-    let total = 0;
-    let fallbackTotal = 0;
-
-    for (const r of rentalsList) {
-      if (r.billNo) {
-        if (!bills.has(r.billNo)) {
-          bills.add(r.billNo);
-          total += getDueAmount(r, rentals);
-        }
-      } else {
-        fallbackTotal += getDueAmount(r, rentals);
-      }
-    }
-    return total + fallbackTotal;
+  const getUniqueBillBalances = (billsList: typeof groupedBills) => {
+    return billsList.reduce((total, bill) => total + getBillDueAmount(bill.rentals, rentals), 0);
   };
 
   // Calculate balance summary
   const balanceSummary = {
-    active: getUniqueBillBalances(filteredRentals.filter((r) => r.status === "active")),
-    upcoming: getUniqueBillBalances(filteredRentals.filter((r) => r.status === "upcoming")),
-    overdue: getUniqueBillBalances(filteredRentals.filter((r) => r.status === "overdue")),
-    returned: getUniqueBillBalances(filteredRentals.filter((r) => r.status === "returned")),
-    total: getUniqueBillBalances(filteredRentals),
+    active: getUniqueBillBalances(groupedBills.filter((bill) => bill.representative.status === "active")),
+    upcoming: getUniqueBillBalances(groupedBills.filter((bill) => bill.representative.status === "upcoming")),
+    overdue: getUniqueBillBalances(groupedBills.filter((bill) => bill.representative.status === "overdue")),
+    returned: getUniqueBillBalances(groupedBills.filter((bill) => bill.representative.status === "returned")),
+    total: getUniqueBillBalances(groupedBills),
   };
 
   async function handleDelete(id: string, billNo?: string) {
     console.info("[RentalsPage] delete requested", { id });
     setDeletingId(id);
     try {
-      await deleteRental(id);
+      await deleteRental(id, billNo);
       toast.success(`Order ${billNo || id} deleted`);
       console.info("[RentalsPage] delete success", { id });
     } catch (error) {
@@ -241,19 +242,26 @@ export default function RentalsPage() {
 
       {/* Mobile: card list */}
       <div className="space-y-3 sm:hidden">
-        {filteredRentals.length === 0 && (
+        {groupedBills.length === 0 && (
           <Card className="glass-panel p-4 text-sm text-muted-foreground">
             {query
               ? "No rented items match your search."
               : "No rented items found. Create a rental to show it here."}
           </Card>
         )}
-        {filteredRentals.map((r) => {
+        {groupedBills.map((bill) => {
+          const r = bill.representative;
           const item = getItem(r.itemId);
           const customer = getCustomer(r.customerId);
-          const dueAmount = getDueAmount(r, rentals);
+          const dueAmount = getBillDueAmount(bill.rentals, rentals);
+          const itemNames = bill.rentals
+            .map((entry) => getItem(entry.itemId)?.name || entry.itemNo || entry.itemId)
+            .filter(Boolean);
+          const itemLabel = itemNames.length > 1
+            ? `${itemNames[0]} +${itemNames.length - 1} more`
+            : itemNames[0] || "Unknown item";
           return (
-            <Card key={r.id} className="glass-panel p-4">
+            <Card key={bill.key} className="glass-panel p-4">
               <div className="flex items-start gap-3">
                 {item ? (
                   <img
@@ -274,7 +282,7 @@ export default function RentalsPage() {
                         {item ? `${item.id} - ${item.name}` : `Missing piece (${r.itemId || "unknown"})`}
                       </p>
                       <p className="text-[11px] text-muted-foreground truncate">
-                        {item?.designer ?? "Piece details unavailable"}
+                        {bill.rentals.length > 1 ? `${bill.rentals.length} items in bill · ${itemLabel}` : item?.designer ?? "Piece details unavailable"}
                       </p>
                     </div>
                     <StatusBadge status={r.status} kind="rental" />
@@ -286,11 +294,11 @@ export default function RentalsPage() {
                         {r.billNo || r.id} - {customer?.name ?? `Missing client (${r.customerId || "unknown"})`}
                       </p>
                       <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                      {formatDate(r.startDate)} to {formatDate(r.endDate)}
+                      {formatDate(r.startDate)} to {formatDate(r.endDate)}{bill.rentals.length > 1 ? ` · ${bill.rentals.length} items` : ""}
                       </p>
                     </div>
                     <p className="font-display text-xl text-gold shrink-0">
-                      {formatCurrencyINR(r.total)}
+                      {formatCurrencyINR(bill.rentals.reduce((sum, entry) => sum + (Number(entry.total) || 0), 0))}
                     </p>
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-3 text-xs">
@@ -365,7 +373,7 @@ export default function RentalsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredRentals.length === 0 && (
+            {groupedBills.length === 0 && (
               <TableRow className="border-border hover:bg-transparent">
                 <TableCell
                   colSpan={8}
@@ -375,13 +383,20 @@ export default function RentalsPage() {
                 </TableCell>
               </TableRow>
             )}
-            {filteredRentals.map((r) => {
+            {groupedBills.map((bill) => {
+              const r = bill.representative;
               const item = getItem(r.itemId);
               const customer = getCustomer(r.customerId);
-              const dueAmount = getDueAmount(r, rentals);
+              const dueAmount = getBillDueAmount(bill.rentals, rentals);
+              const itemNames = bill.rentals
+                .map((entry) => getItem(entry.itemId)?.name || entry.itemNo || entry.itemId)
+                .filter(Boolean);
+              const itemLabel = itemNames.length > 1
+                ? `${itemNames[0]} +${itemNames.length - 1} more`
+                : itemNames[0] || "Unknown item";
               return (
                 <TableRow
-                  key={r.id}
+                  key={bill.key}
                   className="border-border hover:bg-secondary/30 cursor-pointer"
                 >
                   <TableCell className="text-xs text-muted-foreground tracking-wider">
@@ -406,7 +421,7 @@ export default function RentalsPage() {
                           {item ? `${item.id} - ${item.name}` : `Missing piece (${r.itemId || "unknown"})`}
                         </p>
                         <p className="text-[11px] text-muted-foreground truncate">
-                          {item?.designer ?? "Piece details unavailable"}
+                          {bill.rentals.length > 1 ? `${bill.rentals.length} items in bill · ${itemLabel}` : item?.designer ?? "Piece details unavailable"}
                         </p>
                       </div>
                     </div>
@@ -418,8 +433,8 @@ export default function RentalsPage() {
                     {formatDate(r.startDate)}
                     <br />to {formatDate(r.endDate)}
                   </TableCell>
-                  <TableCell className="text-right font-display text-lg whitespace-nowrap">
-                    {formatCurrencyINR(r.total)}
+                  <TableCell className="text-right font-display text-lg whitespace-nowrap text-gold">
+                    {formatCurrencyINR(bill.rentals.reduce((sum, entry) => sum + (Number(entry.total) || 0), 0))}
                   </TableCell>
                   <TableCell className={`text-right font-display text-lg whitespace-nowrap ${dueAmount > 0 ? "text-destructive" : "text-emerald-500"}`}>
                     {formatCurrencyINR(dueAmount)}
@@ -477,8 +492,9 @@ function DeleteRentalDialog({
 }) {
   const [open, setOpen] = useState(false);
 
-  const handleDelete = async (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.preventDefault();
+
+  const handleDelete = async (e?: React.MouseEvent<HTMLButtonElement>) => {
+    e?.preventDefault();
     await onDelete();
     setOpen(false);
   };
