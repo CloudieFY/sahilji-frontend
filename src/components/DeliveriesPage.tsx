@@ -322,21 +322,16 @@ export function DeliveriesPage() {
                           disabled={updating === rental.id}
                           onClick={() => {
                             const balance = getBillDueAmount(rental, rentals);
-                            const securityToRefund = (Number(rental.securityAmount) || 0) > 0 && !(rental as any).securityReturned ? Number(rental.securityAmount) : 0;
                             const collectedEntry = window.prompt(
                               `Enter amount collected now for this item.\nRemaining due: ${formatCurrencyINR(balance)}`,
                               String(balance),
                             );
                             if (collectedEntry == null) return;
 
-                            const collectedAmount = Number(collectedEntry) || 0;
+                            const collectedAmount = Math.max(0, Number(collectedEntry) || 0);
                             const updates: any = {};
                             if (collectedAmount > 0) {
                               updates.advance = (Number(rental.advance) || 0) + collectedAmount;
-                            }
-                            if (securityToRefund > 0) {
-                              updates.securityReturned = true;
-                              updates.securityReturnedAt = new Date().toISOString();
                             }
                             handleStatusUpdate({ ...rental, ...updates }, "returned", collectedAmount > 0 ? "Amount collected and product marked as returned." : "Product marked as returned!");
                           }}

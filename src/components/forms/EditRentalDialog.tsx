@@ -1055,55 +1055,6 @@ Thank you for choosing ARIHANT COLLECTION !`;
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="grid gap-2">
-                        <Label>Status</Label>
-                        <Select
-                          value={editor.status || "upcoming"}
-                          onValueChange={(value) => updateItemEditor(entry.id, { status: value })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(["upcoming", "active", "returned", "overdue"] as const).map((s) => (
-                              <SelectItem key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="grid gap-2">
-                        <Label>Amount Paid</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          value={editor.advance ?? 0}
-                          onChange={(e) => updateItemEditor(entry.id, { advance: Number(e.target.value) })}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="grid gap-2">
-                        <Label>Discount</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          value={editor.discount ?? 0}
-                          onChange={(e) => updateItemEditor(entry.id, { discount: Number(e.target.value) })}
-                        />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label>Security Deposit</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          value={editor.securityAmount ?? 0}
-                          onChange={(e) => updateItemEditor(entry.id, { securityAmount: Number(e.target.value) })}
-                        />
-                      </div>
-                    </div>
-
                     {entryIsSafa ? (
                       <div className="grid gap-2">
                         <Label>Lost Safa</Label>
@@ -1237,6 +1188,14 @@ Thank you for choosing ARIHANT COLLECTION !`;
                   const totalSecurity = aggSecurity;
                   const deduction = form.securityRefundDeduction || 0;
                   const finalRefund = totalSecurity - deduction;
+
+                  const rentalBalance = aggFinalDue - (aggSecurity - deduction);
+                  if (rentalBalance > 0) {
+                    toast.error("Cannot refund security deposit.", {
+                      description: `There is still a balance of ${formatCurrencyINR(rentalBalance)} due on the bill. Please clear the rental balance first.`,
+                    });
+                    return;
+                  }
 
                   if (!window.confirm(`This will finalize the security refund.\n\nTotal Security: ${formatCurrencyINR(totalSecurity)}\nDeduction: ${formatCurrencyINR(deduction)}\nAmount to Refund: ${formatCurrencyINR(finalRefund)}\n\nThis action will mark security as returned for all items and add the deduction as a penalty. Continue?`)) {
                     return;
