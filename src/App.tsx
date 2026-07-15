@@ -85,7 +85,7 @@ export default function App() {
   if (exactRoutes[currentPath]) {
     content = exactRoutes[currentPath];
   } else {
-    // Dynamic route matching (e.g., /customers/123)
+    // Dynamic route matching (e.g /customers/123)
     const customerMatch = currentPath.match(/^\/customers\/([^/]+)$/);
     if (customerMatch) {
       content = <CustomerDetails id={customerMatch[1]} />;

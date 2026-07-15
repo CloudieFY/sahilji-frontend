@@ -384,13 +384,13 @@ export function EditRentalDialog({
     return `
       <div class="thermal">
         <div style="text-align: center; font-size: 11px; font-weight: bold; margin-bottom: 6px;">
-          <div style="margin-bottom: 2px;">॥ श्री शंखेश्वर पार्श्वनाथाय नमः ॥</div>
+          <div style="margin-bottom: 2px;">॥ श्री आशापुरा माताय नमः॥</div>
           <div>॥ श्री आदिनाथाय नमः ॥</div>
         </div>
         <div style="text-align: center; margin-bottom: 6px;">
           <h2 style="margin: 0; font-size: 14px;">ARIHANT COLLECTION </h2>
-          <div style="font-size: 10px; margin-top: 2px;">Address: Maharana Pratap chowk near gas agency</div>
-          <div style="font-size: 10px; margin-top: 2px;">Contact: 9907050222, 7509942222 | Insta: Sajansagar_</div>
+          <div style="font-size: 10px; margin-top: 2px;">Address:Maheshwar Road, Near Daluka Market,Barwaha 451115 District -Khargone</div>
+          <div style="font-size: 10px; margin-top: 2px;">Contact:  9039489995 | Insta: Arihant_rental_point</div>
         </div>
         <div class="thermal-title">${invoiceTitle}</div>
         <div class="thermal-row"><span>Invoice</span><span># ${rental.billNo || rental.id}</span></div>
@@ -597,8 +597,8 @@ Thank you for choosing ARIHANT COLLECTION !`;
       <div class="invoice-half">
         <div class="watermark">ARIHANT COLLECTION </div>
         <div style="text-align: center; font-size: 14px; font-weight: bold; color: #d4af37; margin-bottom: 12px;">
-          <div style="margin-bottom: 4px;">॥ श्री शंखेश्वर पार्श्वनाथाय नमः ॥</div>
-          <div>॥ श्री आदिनाथाय नमः ॥</div>
+          <div style="margin-bottom: 4px;">॥ श्री आशापुरा माताय नमः॥</div>
+          <div>॥ श्री नाकोड़ा पार्श्वनाथाय नमः ॥</div>
         </div>
         <div class="header">
           <svg class="logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
@@ -607,8 +607,8 @@ Thank you for choosing ARIHANT COLLECTION !`;
           </svg>
           <div class="company-info">
             <h1 style="margin-bottom: 4px;">ARIHANT COLLECTION </h1>
-            <p style="text-transform: none; margin-bottom: 2px;">Address: Maharana Pratap chowk near gas agency</p>
-            <p style="text-transform: none; margin-bottom: 2px; color: #111;">Contact: <strong>9907050222, 7509942222</strong> | Insta: <strong>Sajansagar_</strong></p>
+            <p style="text-transform: none; margin-bottom: 2px;">Address:Maheshwar Road, Near Daluka Market,Barwaha 451115 District -Khargone</p>
+            <p style="text-transform: none; margin-bottom: 2px; color: #111;">Contact: <strong> 9039489995</strong> | Insta: <strong>Arihant_rental_point</strong></p>
           </div>
           <div class="invoice-title">
             <h2>${invoiceTitle}</h2>
@@ -1168,7 +1168,7 @@ Thank you for choosing ARIHANT COLLECTION !`;
                     max={aggSecurity}
                     value={form.securityRefundDeduction}
                     onChange={(e) => setForm(c => ({ ...c, securityRefundDeduction: Number(e.target.value) }))}
-                    placeholder="e.g., for damages"
+                    placeholder="e.g for damages"
                   />
                 </div>
                 <div className="grid gap-2 sm:col-span-2">

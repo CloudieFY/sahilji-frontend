@@ -95,8 +95,8 @@ export function getInvoiceContent({
       <div class="invoice-half">
         <div class="watermark">ARIHANT COLLECTION </div>
         <div style="text-align: center; font-size: 14px; font-weight: bold; color: #d4af37; margin-bottom: 12px;">
-          <div style="margin-bottom: 4px;">॥ श्री शंखेश्वर पार्श्वनाथाय नमः ॥</div>
-          <div>॥ श्री आदिनाथाय नमः ॥</div>
+          <div style="margin-bottom: 4px;">॥ श्री आशापुरा माताय नमः ॥</div>
+          <div>॥ श्री नाकोड़ा पार्श्वनाथाय नमः ॥</div>
         </div>
         <div class="header">
           <svg class="logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
@@ -105,8 +105,8 @@ export function getInvoiceContent({
           </svg>
           <div class="company-info">
             <h1 style="margin-bottom: 4px;">ARIHANT COLLECTION </h1>
-            <p style="text-transform: none; margin-bottom: 2px;">Address: Maharana Pratap chowk near gas agency</p>
-            <p style="text-transform: none; margin-bottom: 2px; color: #111;">Contact: <strong>9907050222, 7509942222</strong> | Insta: <strong>Sajansagar_</strong></p>
+            <p style="text-transform: none; margin-bottom: 2px;">Address:Maheshwar Road, Near Daluka Market,Barwaha 451115 District -Khargone</p>
+            <p style="text-transform: none; margin-bottom: 2px; color: #111;">Contact: <strong>9039489995</strong> | Insta: <strong>Arihant_rental_point</strong></p>
           </div>
 
           <div class="invoice-title">
