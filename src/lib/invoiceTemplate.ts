@@ -99,10 +99,7 @@ export function getInvoiceContent({
           <div>॥ श्री नाकोड़ा पार्श्वनाथाय नमः ॥</div>
         </div>
         <div class="header">
-          <svg class="logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-            <rect width="100" height="100" fill="#111" rx="8" />
-            <text x="50" y="62" text-anchor="middle" font-family="Georgia, serif" font-size="38" fill="#d4af37" font-style="italic">SS</text>
-          </svg>
+          <img class="logo" src="/logo.png" alt="ARIHANT COLLECTION logo" />
           <div class="company-info">
             <h1 style="margin-bottom: 4px;">ARIHANT COLLECTION </h1>
             <p style="text-transform: none; margin-bottom: 2px;">Address:Maheshwar Road, Near Daluka Market,Barwaha 451115 District -Khargone</p>

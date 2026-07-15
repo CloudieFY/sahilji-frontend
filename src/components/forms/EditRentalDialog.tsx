@@ -569,7 +569,7 @@ Thank you for choosing ARIHANT COLLECTION !`;
     return `
       <style>
         .header { display: flex; align-items: center; border-bottom: 2px solid #d4af37; padding-bottom: 6px; margin-bottom: 10px; }
-        .logo { width: 45px; height: 45px; margin-right: 12px; }
+        .logo { width: 50px; height: 50px; margin-right: 15px; border-radius: 50%; border: 1px solid #eee; object-fit: cover; }
         .company-info h1 { margin: 0; font-size: 18px; color: #111; letter-spacing: 1.2px; text-transform: uppercase; }
         .company-info p { margin: 2px 0 0 0; color: #666; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
         .invoice-title { margin-left: auto; text-align: right; }
@@ -601,10 +601,7 @@ Thank you for choosing ARIHANT COLLECTION !`;
           <div>॥ श्री नाकोड़ा पार्श्वनाथाय नमः ॥</div>
         </div>
         <div class="header">
-          <svg class="logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-            <rect width="100" height="100" fill="#111" rx="8" />
-            <text x="50" y="62" text-anchor="middle" font-family="Georgia, serif" font-size="28" fill="#d4af37" font-style="italic">SS</text>
-          </svg>
+          <img class="logo" src="/logo.png" alt="ARIHANT COLLECTION logo" />
           <div class="company-info">
             <h1 style="margin-bottom: 4px;">ARIHANT COLLECTION </h1>
             <p style="text-transform: none; margin-bottom: 2px;">Address:Maheshwar Road, Near Daluka Market,Barwaha 451115 District -Khargone</p>
