@@ -23,9 +23,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-import { Plus, Calendar } from "lucide-react";
+import { Plus, Calendar, Trash2 } from "lucide-react";
 import { useStore } from "@/data/store";
-import { formatCurrencyINR } from "@/lib/utils";
+import { formatCurrencyINR, getBillRepresentative } from "@/lib/utils";
+import { printInvoiceHtml } from "@/lib/invoiceTemplate";
 
 import type { Rental, RentalStatus } from "@/data/mock";
 
@@ -42,10 +43,9 @@ const schema = z
     endTimePeriod: z.enum(["Morning", "Afternoon", "Evening", "Night", ""]).optional().or(z.literal("")),
     rate: z.coerce.number().min(0),
     quantity: z.coerce.number().int().min(1),
-    lostQuantity: z.coerce.number().int().min(0),
-    additionalPayment: z.coerce.number().min(0),
+    lostQuantity: z.coerce.number().int().min(0).optional(),
+    payments: z.array(z.object({ amount: z.number(), date: z.string() })).optional(),
     discount: z.coerce.number().min(0),
-    advance: z.coerce.number().min(0),
     securityAmount: z.coerce.number().min(0),
     securityReturned: z.boolean().optional(),
     remarkCompleted: z.boolean().optional(),
@@ -143,43 +143,57 @@ export function EditRentalDialog({
   const [showInvoice, setShowInvoice] = useState(false);
   const [itemEditors, setItemEditors] = useState<Record<string, any>>({});
 
-  const [form, setForm] = useState({
-    billNo: rental.billNo ?? "",
-    address: rental.address ?? "",
-    deliveryDate: rental.deliveryDate ? rental.deliveryDate.slice(0, 10) : today(),
-    deliveryTime: (rental as any).deliveryTime || "10:00",
-    deliveryTimePeriod: (rental as any).deliveryTimePeriod || "Morning",
-    startDate: rental.startDate ? rental.startDate.slice(0, 10) : today(),
-    endDate: rental.endDate ? rental.endDate.slice(0, 10) : today(),
-    endTime: (rental as any).endTime || "10:00",
-    endTimePeriod: (rental as any).endTimePeriod || "Morning",
-    rate: getRentalAmount(
-      rental,
-      rentalItem ? rentalItem.pricePerDay * daysBetween(rental.startDate || today(), rental.endDate || today()) : 0,
-    ),
-    quantity: (rental as any).quantity ?? 1,
-    lostQuantity: (rental as any).lostQuantity ?? 0,
-    discount: rental.discount ?? 0,
-    advance: rental.advance ?? 0,
-    additionalPayment: 0,
-    securityAmount: rental.securityAmount ?? 0,
-    securityReturned: Boolean((rental as any).securityReturned),
-    remarkCompleted: Boolean((rental as any).remarkCompleted),
-    remarkConfirmedBy: (rental as any).remarkConfirmedBy ?? "",
-    drycleanCompleted: Boolean((rental as any).drycleanCompleted),
-    drycleanCompletedBy: (rental as any).drycleanCompletedBy ?? "",
-    drycleanAdminConfirmed: Boolean((rental as any).drycleanAdminConfirmed),
-    drycleanAdminConfirmedBy: (rental as any).drycleanAdminConfirmedBy ?? "",
-    remark: rental.remark ?? "",
-    signature: (rental.signature as string | undefined) ?? "",
-    status: (rental.status ?? "upcoming") as RentalStatus,
-    ownerNumber: (rental as any).ownerNumber ?? "",
-    instaId: (rental as any).instaId ?? "",
-    billMakingDate: (rental as any).billMakingDate ? String((rental as any).billMakingDate).slice(0, 10) : today(),
-    confirmationChecked: Boolean((rental as any).confirmationChecked),
-    securityRefundNote: (rental as any).securityRefundNote ?? "",
-    securityRefundDeduction: 0,
-  });
+  // Find the main rental that holds bill-level info (discount, security, payments).
+  // Uses getBillRepresentative so this always agrees with the backend's own
+  // representative selection (rentalController.updateRental) and with every other
+  // page (DeliveriesPage) that reads or writes bill-level money.
+  const mainBillRental = useMemo(() => {
+    if (!rental.billNo) return rental;
+    const related = rentals.filter(r => r.billNo === rental.billNo);
+    return getBillRepresentative(related) ?? rental;
+  }, [rentals, rental]);
+
+  const createFormState = (entry: Rental, payments?: Array<{ amount: number; date: string }>) => {
+    const entryItem = getItem(entry.itemId);
+    return {
+      billNo: entry.billNo ?? "",
+      address: entry.address ?? "",
+      deliveryDate: entry.deliveryDate ? entry.deliveryDate.slice(0, 10) : today(),
+      deliveryTime: (entry as any).deliveryTime || "10:00",
+      deliveryTimePeriod: (entry as any).deliveryTimePeriod || "Morning",
+      startDate: entry.startDate ? entry.startDate.slice(0, 10) : today(),
+      endDate: entry.endDate ? entry.endDate.slice(0, 10) : today(),
+      endTime: (entry as any).endTime || "10:00",
+      endTimePeriod: (entry as any).endTimePeriod || "Morning",
+      rate: getRentalAmount(
+        entry,
+        entryItem ? entryItem.pricePerDay * daysBetween(entry.startDate || today(), entry.endDate || today()) : 0,
+      ),
+      quantity: (entry as any).quantity ?? 1,
+      lostQuantity: (entry as any).lostQuantity ?? 0,
+      payments: payments ?? (entry as any).payments ?? [],
+      discount: entry.discount ?? 0,
+      securityAmount: entry.securityAmount ?? 0,
+      securityReturned: Boolean((entry as any).securityReturned),
+      remarkCompleted: Boolean((entry as any).remarkCompleted),
+      remarkConfirmedBy: (entry as any).remarkConfirmedBy ?? "",
+      drycleanCompleted: Boolean((entry as any).drycleanCompleted),
+      drycleanCompletedBy: (entry as any).drycleanCompletedBy ?? "",
+      drycleanAdminConfirmed: Boolean((entry as any).drycleanAdminConfirmed),
+      drycleanAdminConfirmedBy: (entry as any).drycleanAdminConfirmedBy ?? "",
+      remark: entry.remark ?? "",
+      signature: (entry.signature as string | undefined) ?? "",
+      status: (entry.status ?? "upcoming") as RentalStatus,
+      ownerNumber: (entry as any).ownerNumber ?? "",
+      instaId: (entry as any).instaId ?? "",
+      billMakingDate: (entry as any).billMakingDate ? String((entry as any).billMakingDate).slice(0, 10) : today(),
+      confirmationChecked: Boolean((entry as any).confirmationChecked),
+      securityRefundNote: (entry as any).securityRefundNote ?? "",
+      securityRefundDeduction: 0,
+    };
+  };
+
+  const [form, setForm] = useState(() => createFormState(rental));
 
   const [billNoLoading, setBillNoLoading] = useState(false);
 
@@ -190,7 +204,24 @@ export function EditRentalDialog({
     return [rental];
   }, [rentals, rental.billNo, rental.id]);
 
+  const billPayments = useMemo(() => {
+    // Consolidate all payments from all pieces in the bill into one array. Payments
+    // are always written to a single representative piece (getBillRepresentative),
+    // so no dedup is needed here — and deduping by "date-amount" was actively wrong:
+    // two genuinely separate payments (e.g. ₹500 collected at one item's delivery
+    // and ₹500 collected at another item's return, same day) share that key and one
+    // would get silently dropped, understating "Amount Paid" in the Bill Summary.
+    return relatedRentals.flatMap((r: Rental) => r.payments || []);
+  }, [relatedRentals]);
+
+  // The single representative piece that holds bill-level money (payments, advance,
+  // security, discount). It MUST be the same piece the form is populated from
+  // (mainBillRental) and the same piece the backend treats as the bill rep,
+  // otherwise payments get written to the wrong piece on save.
+  const billRental = mainBillRental;
+
   async function ensureBillNo() {
+    console.log('[EditRentalDialog] ensureBillNo called.');
     if (form.billNo?.trim()) return;
     setBillNoLoading(true);
 
@@ -214,7 +245,9 @@ export function EditRentalDialog({
       }
     }
 
-    setForm((c) => ({ ...c, billNo: `BILL-${String(nextSeq).padStart(4, "0")}` }));
+    const newBillNo = `BILL-${String(nextSeq).padStart(4, "0")}`;
+    console.log('[EditRentalDialog] Generated new bill number:', newBillNo);
+    setForm((c) => ({ ...c, billNo: newBillNo }));
     setBillNoLoading(false);
   }
 
@@ -244,8 +277,8 @@ export function EditRentalDialog({
       rate: entryRate,
       quantity: (entry as any).quantity ?? 1,
       lostQuantity: (entry as any).lostQuantity ?? 0,
+      payments: (entry as any).payments ?? (entry.advance ? [{ amount: entry.advance, date: ((entry as any).createdAt || entry.startDate).slice(0, 10) }] : []),
       discount: entry.discount ?? 0,
-      advance: entry.advance ?? 0,
       securityAmount: entry.securityAmount ?? 0,
       securityReturned: Boolean((entry as any).securityReturned),
       remarkCompleted: Boolean((entry as any).remarkCompleted),
@@ -265,17 +298,19 @@ export function EditRentalDialog({
   };
 
   useEffect(() => {
+    console.log('[EditRentalDialog] useEffect for form initialization running. Open:', open);
     if (!open) return;
+    setForm(createFormState(mainBillRental, billPayments));
     const nextEditors = Object.fromEntries(
       relatedRentals.map((entry) => [entry.id, createItemEditorState(entry)]),
     );
     setItemEditors(nextEditors);
-  }, [open, relatedRentals, getItem]);
+    console.log('[EditRentalDialog] Form and item editors initialized.');
+  }, [open, relatedRentals, getItem, mainBillRental, billPayments]);
 
   const isSafaRental = isSafaItem(rentalItem);
-  const rentalQuantity = isSafaRental ? Math.max(1, Number(form.quantity) || 1) : 1;
-  const subtotal = (form.rate || 0) * rentalQuantity;
-  const totalBill = subtotal - form.discount + form.securityAmount;
+const rentalQuantity = isSafaRental ? Math.max(1, Number(form.quantity) || 1) : 1;
+  const totalPaid = (form.payments || []).reduce((acc: number, p: { amount: number }) => acc + (p.amount || 0), 0);
 
   const updateItemEditor = (entryId: string, patch: Partial<any>) => {
     setItemEditors((current) => ({
@@ -288,11 +323,9 @@ export function EditRentalDialog({
   };
 
   const computedPieces = useMemo(() => {
+    console.log('[EditRentalDialog] Computing pieces and aggregates...');
     let aggSubtotalLocal = 0;
-    let aggAdvanceLocal = 0;
-    let aggSecurityLocal = 0;
-    let aggDiscountLocal = 0;
-    let aggSecurityRefundDueLocal = 0;
+    let aggPenaltyLocal = 0;
 
     const pieces = relatedRentals.map((r) => {
       const editor = itemEditors[r.id] || createItemEditorState(r);
@@ -311,14 +344,7 @@ export function EditRentalDialog({
       const rSubtotal = rRate * rQuantity;
 
       aggSubtotalLocal += rSubtotal;
-      aggDiscountLocal += Number(editor.discount) || 0;
-      aggAdvanceLocal += Number(editor.advance) || 0;
-      const rSecurity = Number(editor.securityAmount) || 0;
-      const rSecurityReturned = Boolean(editor.securityReturned);
-      aggSecurityLocal += rSecurity;
-
-      const rStatus = editor.status;
-      aggSecurityRefundDueLocal += rStatus === "returned" && rSecurityReturned ? 0 : rSecurity;
+      aggPenaltyLocal += Number(r.penalty) || 0;
 
       return {
         r,
@@ -339,24 +365,38 @@ export function EditRentalDialog({
       };
     });
 
-    const aggTotalLocal = aggSubtotalLocal - aggDiscountLocal + aggSecurityLocal;
-    const aggFinalDueLocal = Math.max(0, aggTotalLocal - aggAdvanceLocal);
+    // Use bill-level discount and security from the main form, just like in NewRentalDialog
+    const aggDiscountLocal = Number(form.discount) || 0;
+    const aggSecurityLocal = Number(form.securityAmount) || 0;
+
+    // The form.payments array is the single source of truth for what is currently being edited.
+    const aggPaidLocal = (form.payments || []).reduce((acc: number, p: { amount: number }) => acc + (Number(p.amount) || 0), 0);
+
+    // Total Bill must be derived from the LIVE edited subtotal (rate x qty across all
+    // pieces) so that rate/qty edits and recalculations flow into the balance and the
+    // generated invoice. Using the stale stored total (aggPiecesTotalFromDb) meant
+    // "Total Rent" updated but "Total Bill" / "Balance" did not. This mirrors
+    // NewRentalDialog: netTotal = piecesTotal - discount + security.
+    const aggTotalLocal = aggSubtotalLocal - aggDiscountLocal + aggSecurityLocal + aggPenaltyLocal;
+    const aggFinalDueLocal = Math.max(0, aggTotalLocal - aggPaidLocal);
+    const aggSecurityRefundDueLocal = form.status === "returned" && form.securityReturned ? 0 : aggSecurityLocal;
+    console.log('[EditRentalDialog] Aggregates computed:', { aggSubtotalLocal, aggDiscountLocal, aggSecurityLocal, aggPaidLocal, aggTotalLocal, aggFinalDueLocal });
 
     return {
       pieces,
       aggSubtotal: aggSubtotalLocal,
-      aggAdvance: aggAdvanceLocal,
+      aggPaid: aggPaidLocal,
       aggSecurity: aggSecurityLocal,
       aggDiscount: aggDiscountLocal,
       aggSecurityRefundDue: aggSecurityRefundDueLocal,
       aggTotal: aggTotalLocal,
       aggFinalDue: aggFinalDueLocal,
     };
-  }, [relatedRentals, getItem, itemEditors, form.additionalPayment]);
+  }, [relatedRentals, getItem, itemEditors, form.discount, form.securityAmount, form.payments, form.status, form.securityReturned]);
 
   const piecesData = computedPieces.pieces;
   const aggSubtotal = computedPieces.aggSubtotal;
-  const aggAdvance = computedPieces.aggAdvance;
+  const aggPaid = computedPieces.aggPaid;
   const aggDiscount = computedPieces.aggDiscount;
   const aggSecurity = computedPieces.aggSecurity;
   const aggSecurityRefundDue = computedPieces.aggSecurityRefundDue;
@@ -402,10 +442,10 @@ export function EditRentalDialog({
         ${thermalPiecesHtml}
 
         <div class="thermal-row"><span>Total Rent</span><span>${formatCurrencyINR(aggSubtotal)}</span></div>
-        <div class="thermal-row"><span>Discount</span><span>-${formatCurrencyINR(aggDiscount)}</span></div>
         <div class="thermal-row"><span>Security Received</span><span>${formatCurrencyINR(aggSecurity)}</span></div>
+        <div class="thermal-row"><span>Discount</span><span>-${formatCurrencyINR(aggDiscount)}</span></div>
         <div class="thermal-row"><span>Total Bill</span><span>${formatCurrencyINR(aggTotal)}</span></div>
-        <div class="thermal-row"><span>Amount Paid</span><span>${formatCurrencyINR(aggAdvance)}</span></div>
+        <div class="thermal-row"><span>Amount Paid</span><span>${formatCurrencyINR(aggPaid)}</span></div>
         <div class="thermal-row"><span>Security Refund</span><span>${formatCurrencyINR(aggSecurityRefundDue)}</span></div>
         <div class="thermal-row thermal-total"><span>Balance</span><span>${formatCurrencyINR(aggFinalDue)}</span></div>
 
@@ -438,21 +478,25 @@ export function EditRentalDialog({
     : "Booking invoice reflects the advance paid. Change status to Active for delivery or Returned for the final bill.";
 
   const handleStatusChange = (v: RentalStatus) => {
+    console.log('[EditRentalDialog] handleStatusChange called with status:', v);
     if (v === "returned") {
       const confirmed = window.confirm("Are all dues clear? Please confirm that all balances are settled before marking as returned.");
       if (!confirmed) return;
     }
 
-    let newAdvance = form.advance;
+    let newPayments = [...form.payments];
     let newSecurityReturned = form.securityReturned;
     let newLostQuantity = form.lostQuantity;
 
 
     if (v === "active" && form.status !== "active") {
-      const confirmed = window.confirm("Is all amount paid?");
+      const confirmed = window.confirm("Mark this rental as active now?");
       if (!confirmed) return;
-      newAdvance = form.advance + subtotal;
-      toast.success(`Added ${formatCurrencyINR(subtotal)} to amount paid.`);
+      const clearAll = window.confirm("Have you received the full balance? Choose OK to mark full payment as received, Cancel to keep existing payment entries.");
+      if (clearAll) {
+        newPayments = [{ amount: aggTotal, date: today() }];
+        toast.success(`Balance cleared for delivery.`);
+      }
     }
 
     if (v === "returned") {
@@ -486,7 +530,7 @@ export function EditRentalDialog({
     }
 
     const nextFinalDue = (() => {
-      return Math.max(0, totalBill - newAdvance);
+      return Math.max(0, aggTotal - newPayments.reduce((acc, p) => acc + p.amount, 0));
     })();
 
     if (v === "returned" && nextFinalDue > 0) {
@@ -494,7 +538,8 @@ export function EditRentalDialog({
       return;
     }
 
-    setForm((c) => ({ ...c, status: v, advance: newAdvance, securityReturned: newSecurityReturned, lostQuantity: newLostQuantity }));
+    setForm((c) => ({ ...c, status: v, payments: newPayments, securityReturned: newSecurityReturned, lostQuantity: newLostQuantity }));
+    console.log('[EditRentalDialog] Form state updated after status change.');
   };
 
   const handleSignatureUpload = (file: File | undefined) => {
@@ -519,6 +564,7 @@ export function EditRentalDialog({
   };
 
   function shareOnWhatsApp() {
+    console.log('[EditRentalDialog] shareOnWhatsApp called.');
     let invoiceTitle = "Invoice";
     if (form.status === "upcoming") invoiceTitle = "Booking Invoice";
     else if (form.status === "active") invoiceTitle = "Delivery Invoice";
@@ -531,13 +577,13 @@ export function EditRentalDialog({
 *Date:* ${form.billMakingDate ? new Date(form.billMakingDate).toLocaleDateString('en-IN') : "-"}
 *Client:* ${customer?.name || rental.customerId}
 *Pieces:* 
-${piecesData.map(p => `- ${p.rItem?.name || "Unknown"} (${p.r.itemNo || p.r.itemId}) [Qty: ${p.rQuantity}${p.rLostQuantity > 0 ? `, Lost: ${p.rLostQuantity}` : ""} | Del: ${formatDate(p.rDeliveryDate.slice(0, 10))}${p.rDeliveryTime ? ` ${p.rDeliveryTime}` : ""}${p.rDeliveryTimePeriod ? ` (${p.rDeliveryTimePeriod})` : ""} | Return: ${formatDate(p.rEndDate.slice(0, 10))}${p.rEndTime ? ` ${p.rEndTime}` : ""}${p.rEndTimePeriod ? ` (${p.rEndTimePeriod})` : ""}] - ${formatCurrencyINR(p.rSubtotal)}`).join("\n")}
+${piecesData.map((p: any) => `- ${p.rItem?.name || "Unknown"} (${p.r.itemNo || p.r.itemId}) [Qty: ${p.rQuantity}${p.rLostQuantity > 0 ? `, Lost: ${p.rLostQuantity}` : ""} | Del: ${formatDate(p.rDeliveryDate.slice(0, 10))}${p.rDeliveryTime ? ` ${p.rDeliveryTime}` : ""}${p.rDeliveryTimePeriod ? ` (${p.rDeliveryTimePeriod})` : ""} | Return: ${formatDate(p.rEndDate.slice(0, 10))}${p.rEndTime ? ` ${p.rEndTime}` : ""}${p.rEndTimePeriod ? ` (${p.rEndTimePeriod})` : ""}] - ${formatCurrencyINR(p.rSubtotal)}`).join("\n")}
 
 *Total Rent:* ${formatCurrencyINR(aggSubtotal)}
-*Discount:* -${formatCurrencyINR(aggDiscount)}
 *Security Received:* ${formatCurrencyINR(aggSecurity)}
+*Discount:* -${formatCurrencyINR(aggDiscount)}
 *Total Bill:* ${formatCurrencyINR(aggTotal)}
-*Amount Paid:* ${formatCurrencyINR(aggAdvance)}
+*Amount Paid:* ${formatCurrencyINR(aggPaid)}
 *Security Refund:* ${formatCurrencyINR(aggSecurityRefundDue)}
 *Balance:* ${formatCurrencyINR(aggFinalDue)}
 
@@ -547,14 +593,14 @@ Thank you for choosing ARIHANT COLLECTION !`;
     window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
   }
 
-  type InvoiceMode = "A4" | "THERMAL";
-
-  function getInvoiceContent() {
+  type InvoiceMode = "A4" | "THERMAL";  function getInvoiceContent() {
     let invoiceTitle = "Invoice";
     if (form.status === "upcoming") invoiceTitle = "Booking Invoice";
     else if (form.status === "active") invoiceTitle = "Delivery Invoice";
     else if (form.status === "returned") invoiceTitle = "Final Invoice";
     else if (form.status === "overdue") invoiceTitle = "Overdue Final Bill";
+    const logoUrl = typeof window !== "undefined" ? `${window.location.origin}/logo.png` : "/logo.png";
+
 
     const piecesHtml = piecesData.map(({ r, rItem, rStartDate, rEndDate, rDeliveryDate, rDeliveryTime, rDeliveryTimePeriod, rEndTime, rEndTimePeriod, rRate, rSubtotal, rQuantity, rLostQuantity }) => `
       <tr>
@@ -601,7 +647,7 @@ Thank you for choosing ARIHANT COLLECTION !`;
           <div>॥ श्री नाकोड़ा पार्श्वनाथाय नमः ॥</div>
         </div>
         <div class="header">
-          <img class="logo" src="/logo.png" alt="ARIHANT COLLECTION logo" />
+          <img class="logo" src="${logoUrl}" alt="ARIHANT COLLECTION logo" />
           <div class="company-info">
             <h1 style="margin-bottom: 4px;">ARIHANT COLLECTION </h1>
             <p style="text-transform: none; margin-bottom: 2px;">Address:Maheshwar Road, Near Daluka Market,Barwaha 451115 District -Khargone</p>
@@ -646,10 +692,15 @@ Thank you for choosing ARIHANT COLLECTION !`;
 
         <div class="summary-box">
           <div class="row"><span>Total Rent</span><span>${formatCurrencyINR(aggSubtotal)}</span></div>
-          <div class="row"><span>Discount</span><span>-${formatCurrencyINR(aggDiscount)}</span></div>
           <div class="row"><span>Security Deposit</span><span>${formatCurrencyINR(aggSecurity)}</span></div>
+          <div class="row"><span>Discount</span><span>-${formatCurrencyINR(aggDiscount)}</span></div>
           <div class="row"><span>Total Bill</span><span>${formatCurrencyINR(aggTotal)}</span></div>
-          <div class="row"><span>Amount Paid</span><span>${formatCurrencyINR(aggAdvance)}</span></div>
+          ${(form.payments || []).length > 0 ? `
+            <div class="row" style="padding-top: 4px; margin-top: 2px; border-top: 1px solid #eaeaea; flex-direction: column; align-items: flex-start; gap: 2px;">
+              <div style="width: 100%; display: flex; justify-content: space-between;"><strong>Payments Received</strong></div> 
+              ${(form.payments || []).map((p: { date: string; amount: number }) => `<div style="width: 100%; display: flex; justify-content: space-between; font-size: 10px; color: #333;"><span>Paid on ${formatDate(p.date)}</span><span>-${formatCurrencyINR(p.amount)}</span></div>`).join('')}
+            </div>
+          ` : ''}
           <div class="row"><span>Security Refund</span><span>${formatCurrencyINR(aggSecurityRefundDue)}</span></div>
           <div class="row total"><span>Balance</span><span>${formatCurrencyINR(aggFinalDue)}</span></div>
         </div>
@@ -677,7 +728,7 @@ Thank you for choosing ARIHANT COLLECTION !`;
     `;
   }
 
-  function getInvoiceHtml(mode: InvoiceMode = "A4") {
+    function getInvoiceHtml(mode: InvoiceMode = "A4") {
     if (mode === "THERMAL") {
       return `
         <html>
@@ -786,24 +837,20 @@ Thank you for choosing ARIHANT COLLECTION !`;
     if (typeof window === "undefined") return;
 
     const invoiceHtml = getInvoiceHtml("A4");
-
-    const printWindow = window.open("", "_blank", "width=800,height=900");
-    if (!printWindow) {
+    if (!printInvoiceHtml(invoiceHtml)) {
       toast.error("Unable to open print window.");
-      return;
     }
-    printWindow.document.write(invoiceHtml);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
+    console.log('[EditRentalDialog] handleSubmit called.');
     e.preventDefault();
     await ensureBillNo();
     const parsed = schema.safeParse(form);
     if (!parsed.success) {
-      toast.error(parsed.error.issues[0]?.message ?? "Invalid input");
+      const errorMessage = parsed.error.issues[0]?.message ?? "Invalid input";
+      toast.error(errorMessage);
+      console.error('[EditRentalDialog] Form validation failed:', parsed.error.issues);
       return;
     }
 
@@ -837,6 +884,8 @@ Thank you for choosing ARIHANT COLLECTION !`;
 
     setLoading(true);
     try {
+      const updatedPayments = (form.payments ?? []) as Array<{ amount: number; date: string; }>;
+      console.log('[EditRentalDialog] Preparing updates for submission. Payments to be saved:', updatedPayments);
       const updates = await Promise.all(
         relatedRentals.map(async (entry) => {
           const entryEditor = itemEditors[entry.id] || createItemEditorState(entry);
@@ -855,11 +904,15 @@ Thank you for choosing ARIHANT COLLECTION !`;
             rate: entryEditor.rate,
             quantity: entryEditor.quantity,
             lostQuantity: entryEditor.lostQuantity,
+            // Only the bill representative carries the consolidated payments. Siblings
+            // send an empty array so any stray payments on them are cleared WITHOUT
+            // wiping the representative's payments (guarded on the backend).
+            payments: entry.id === billRental.id ? updatedPayments : [],
+            advance: entry.id === billRental.id ? updatedPayments.reduce<number>((sum, p) => sum + Number(p.amount || 0), 0) : 0,
             discount: entryEditor.discount,
-            advance: entryEditor.advance,
-            securityAmount: entryEditor.securityAmount,
-            securityReturned: entryEditor.securityReturned ?? false,
-            ...(entryEditor.securityReturned ? { securityReturnedAt: new Date().toISOString() } : {}),
+            securityAmount: entry.id === billRental.id ? entryEditor.securityAmount : entry.securityAmount,
+            securityReturned: entry.id === billRental.id ? entryEditor.securityReturned ?? false : entry.securityReturned,
+            ...(entryEditor.securityReturned && entry.id === billRental.id ? { securityReturnedAt: new Date().toISOString() } : {}),
             remarkCompleted: entryEditor.remarkCompleted ?? false,
             remarkConfirmedBy: entryEditor.remarkConfirmedBy ?? "",
             drycleanCompleted: entryEditor.drycleanCompleted ?? false,
@@ -877,6 +930,7 @@ Thank you for choosing ARIHANT COLLECTION !`;
             confirmationChecked: entryEditor.confirmationChecked ?? false,
           };
 
+          console.log(`[EditRentalDialog] Payload for rental ${entry.id}:`, payload);
           const updated = await updateRental(entry.id, payload);
           if (entryItem && isSafaItem(entryItem)) {
             const previousLost = Number((entry as any).lostQuantity) || 0;
@@ -896,10 +950,12 @@ Thank you for choosing ARIHANT COLLECTION !`;
       const updated = updates[0];
       onUpdated?.(updated);
       toast.success(`${relatedRentals.length} rental item(s) updated`);
+      console.log('[EditRentalDialog] Submission successful.');
       setOpen(false);
     } catch (err) {
       console.error(err);
-      toast.error(`Failed to update rental ${rental.id}`);
+      const errorMessage = err instanceof Error ? err.message : `Failed to update rental ${rental.id}`;
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -1152,20 +1208,23 @@ Thank you for choosing ARIHANT COLLECTION !`;
           </div>
 
           {/* Security Refund Section - visible only when all items are returned */}
-          {relatedRentals.every(r => (itemEditors[r.id] || createItemEditorState(r)).status === 'returned') && (
+          {form.status === 'returned' && (
             <div className="space-y-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-amber-600 border-b border-amber-500/20 pb-2">Security Refund</h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="securityRefundDeduction">Deduction from Security (INR)</Label>
+                <div className="grid gap-2 sm:col-span-1">
+                  <Label htmlFor="securityRefundAmount">Amount to Refund (INR)</Label>
                   <Input
-                    id="securityRefundDeduction"
+                    id="securityRefundAmount"
                     type="number"
                     min={0}
                     max={aggSecurity}
-                    value={form.securityRefundDeduction}
-                    onChange={(e) => setForm(c => ({ ...c, securityRefundDeduction: Number(e.target.value) }))}
-                    placeholder="e.g for damages"
+                    value={aggSecurity - (form.securityRefundDeduction || 0)}
+                    onChange={(e) => {
+                      const refundAmount = Number(e.target.value);
+                      const deduction = Math.max(0, aggSecurity - refundAmount);
+                      setForm(c => ({ ...c, securityRefundDeduction: deduction }));
+                    }}
                   />
                 </div>
                 <div className="grid gap-2 sm:col-span-2">
@@ -1183,39 +1242,31 @@ Thank you for choosing ARIHANT COLLECTION !`;
                 type="button"
                 onClick={async () => {
                   const totalSecurity = aggSecurity;
-                  const deduction = form.securityRefundDeduction || 0;
-                  const finalRefund = totalSecurity - deduction;
+                  const deduction = form.securityRefundDeduction ?? 0;
+                  const finalRefund = Math.max(0, totalSecurity - deduction);
 
-                  const rentalBalance = aggFinalDue - (aggSecurity - deduction);
-                  if (rentalBalance > 0) {
+                  if (aggFinalDue > 0) {
                     toast.error("Cannot refund security deposit.", {
-                      description: `There is still a balance of ${formatCurrencyINR(rentalBalance)} due on the bill. Please clear the rental balance first.`,
+                      description: `There is still a balance of ${formatCurrencyINR(aggFinalDue)} due on the bill. Please clear the rental balance first.`,
                     });
                     return;
                   }
 
-                  if (!window.confirm(`This will finalize the security refund.\n\nTotal Security: ${formatCurrencyINR(totalSecurity)}\nDeduction: ${formatCurrencyINR(deduction)}\nAmount to Refund: ${formatCurrencyINR(finalRefund)}\n\nThis action will mark security as returned for all items and add the deduction as a penalty. Continue?`)) {
+                  if (!window.confirm(`This will finalize the security refund.\n\nTotal Security: ${formatCurrencyINR(totalSecurity)}\nDeduction for damages: ${formatCurrencyINR(deduction)}\nFinal Amount to Refund: ${formatCurrencyINR(finalRefund)}\n\nThis action will mark security as returned. Continue?`)) {
                     return;
                   }
 
                   setLoading(true);
                   try {
-                    const updates = relatedRentals.map((entry, index) => {
-                      const patch: any = {
-                        securityReturned: true,
-                        securityReturnedAt: new Date().toISOString(),
-                        // Treat the refunded amount as an advance to clear it from the balance
-                        advance: (Number(itemEditors[entry.id]?.advance) || 0) + (Number(itemEditors[entry.id]?.securityAmount) || 0) - deduction,
-                        // Add deduction to penalty
-                        penalty: (Number(itemEditors[entry.id]?.penalty) || 0) + deduction,
-                      };
-                      if (index === 0) { // Add penalty and note to the first item
-                        patch.penalty = (Number(itemEditors[entry.id]?.penalty) || 0) + deduction;
-                        patch.securityRefundNote = form.securityRefundNote;
-                      }
-                      return updateRental(entry.id, patch);
-                    });
-                    await Promise.all(updates);
+                    // Update the bill representative — the piece that actually holds the
+                    // security deposit (not relatedRentals[0], which is the newest piece).
+                    const mainRental = billRental;
+                    await updateRental(mainRental.id, {
+                      securityReturned: true,
+                      securityReturnedAt: new Date().toISOString(),
+                      securityRefundNote: form.securityRefundNote,
+                      securityRefundDeduction: deduction,
+                    } as any);
                     toast.success("Security deposit refund processed successfully.");
                     setOpen(false); // Close dialog on success
                   } catch (err) {
@@ -1230,21 +1281,10 @@ Thank you for choosing ARIHANT COLLECTION !`;
 
           {/* Actions & Status Section */}
 
-          {/* Payment & Notes Section */}
+          {/* Notes Section */}
           <div className="space-y-4 rounded-lg border border-border bg-secondary/10 p-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border pb-2">Additional Payments & Notes</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border pb-2">Notes</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="additionalPayment">Additional Payment</Label>
-                <Input
-                  id="additionalPayment"
-                  type="number"
-                  min={0}
-                  value={form.additionalPayment || ""}
-                  placeholder="Enter amount..."
-                  onChange={(e) => setForm((c) => ({ ...c, additionalPayment: Number(e.target.value) || 0 }))}
-                />
-              </div>
               <div className="grid gap-2">
                 <Label htmlFor="remark">Remark</Label>
                 <Textarea
@@ -1294,25 +1334,22 @@ Thank you for choosing ARIHANT COLLECTION !`;
                     <span className="font-semibold">{formatCurrencyINR(aggSubtotal)}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Discount:</span>
-                    <span className="font-semibold text-emerald-600">-{formatCurrencyINR(aggDiscount)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Security Deposit:</span>
                     <span className="font-semibold">{formatCurrencyINR(aggSecurity)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Discount:</span>
+                    <span className="font-semibold text-emerald-600">-{formatCurrencyINR(aggDiscount)}</span>
                   </div>
                   <div className="flex items-center justify-between border-t border-border/50 pt-1 mt-1">
                     <span className="text-muted-foreground">Total Bill:</span>
                     <span className="font-semibold">{formatCurrencyINR(aggTotal)}</span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Amount Paid:</span>
-                    <span className="font-semibold text-emerald-600">-{formatCurrencyINR(aggAdvance)}</span>
-                  </div>
-                  {form.additionalPayment > 0 && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Additional Payment:</span>
-                      <span className="font-semibold text-emerald-600">-{formatCurrencyINR(form.additionalPayment)}</span>
+                  {(form.payments || []).length > 0 && (
+                    <div className="border-t border-border/50 mt-1 pt-1">
+                      {(form.payments || []).map((p: { date: string, amount: number }, i: number) => (
+                        <div key={i} className="flex justify-between text-xs"><span className="text-muted-foreground">Paid on {formatDate(p.date)}</span><span className="font-semibold text-emerald-600">-{formatCurrencyINR(p.amount)}</span></div>
+                      ))}
                     </div>
                   )}
                   <div className="flex items-center justify-between bg-red-500/10 px-2 py-1.5 rounded border border-red-500/20 mt-2">
@@ -1363,73 +1400,6 @@ Thank you for choosing ARIHANT COLLECTION !`;
               Total Rent: {formatCurrencyINR(aggSubtotal)}
               <br />
               Total Bill: {formatCurrencyINR(aggTotal)}
-            </div>
-          </div>
-
-          <div className="rounded-md border border-border bg-secondary/40 px-4 py-3 flex flex-col justify-between">
-            <div className="space-y-3">
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground leading-tight">
-                  {invoiceNote}
-                </p>
-              </div>
-              
-              {/* Total Rental Balance Breakdown */}
-              <div className="border-t border-border/50 pt-3 space-y-2">
-                <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground font-semibold">
-                  Total Rental Balance
-                </p>
-                <div className="space-y-1 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Total Rental:</span>
-                    <span className="font-semibold text-gold">{formatCurrencyINR(aggSubtotal)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Discount:</span>
-                    <span className="font-semibold text-emerald-600">-{formatCurrencyINR(aggDiscount)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Security Deposit:</span>
-                    <span className="font-semibold text-gold">{formatCurrencyINR(aggSecurity)}</span>
-                  </div>
-                  <div className="flex items-center justify-between border-t border-border/50 pt-1">
-                    <span className="text-muted-foreground">Total Bill:</span>
-                    <span className="font-semibold text-gold">{formatCurrencyINR(aggTotal)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Amount Paid:</span>
-                    <span className="font-semibold text-emerald-600">-{formatCurrencyINR(aggAdvance)}</span>
-                  </div>
-                  {form.additionalPayment > 0 && (
-                    <div className="flex items-center justify-between bg-red-500/10 px-2 py-1 rounded border border-red-500/20">
-                      <span className="text-muted-foreground">Additional Payment:</span>
-                      <span className="font-semibold text-emerald-600">-{formatCurrencyINR(form.additionalPayment)}</span>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between bg-red-500/10 px-2 py-1 rounded border border-red-500/20">
-                    <span className="text-red-600 font-semibold">Balance Due:</span>
-                    <span className="font-bold text-red-600">{formatCurrencyINR(aggFinalDue)}</span>
-                  </div>
-                  {aggSecurityRefundDue > 0 && (
-                    <div className="flex items-center justify-between pt-1 border-t border-border/50">
-                      <span className="text-muted-foreground">Security Refund Due:</span>
-                      <span className="font-semibold text-amber-600">{formatCurrencyINR(aggSecurityRefundDue)}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex flex-wrap justify-end gap-1.5 mt-3 pt-3 border-t border-border/50">
-              <Button type="button" variant="outline" size="sm" className="h-7 text-xs px-2" onClick={shareOnWhatsApp}>
-                WA
-              </Button>
-              <Button type="button" variant="outline" size="sm" className="h-7 text-xs px-2" onClick={printInvoice}>
-                Print
-              </Button>
-              <Button type="button" variant="outline" size="sm" className="h-7 text-xs px-2" onClick={downloadBill}>
-                PDF
-              </Button>
             </div>
           </div>
 

@@ -14,12 +14,65 @@ export function formatDate(dateStr: string) {
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
+/**
+ * Opens a print window and calls window.print() only after every image in the
+ * document (logo, item photos, signature) has finished loading. Calling print()
+ * right after document.write()/close() races the image fetch: on a fast/cached
+ * load the logo makes it in, on a slow one the print snapshot is taken before
+ * the image has decoded and it comes out blank - which is why the logo showed
+ * up on some invoices but not others. Returns false if the popup was blocked.
+ */
+export function printInvoiceHtml(invoiceHtml: string): boolean {
+  if (typeof window === "undefined") return false;
+  const printWindow = window.open("", "_blank", "width=800,height=900");
+  if (!printWindow) return false;
+
+  printWindow.document.write(invoiceHtml);
+  printWindow.document.close();
+  printWindow.focus();
+
+  let printed = false;
+  const triggerPrint = () => {
+    if (printed) return;
+    printed = true;
+    try {
+      printWindow.focus();
+      printWindow.print();
+    } catch {
+      // Window may have already been closed by the user.
+    }
+  };
+
+  const pendingImages = Array.from(printWindow.document.images).filter((img) => !img.complete);
+  if (pendingImages.length === 0) {
+    setTimeout(triggerPrint, 50);
+  } else {
+    let remaining = pendingImages.length;
+    const onSettle = () => {
+      remaining -= 1;
+      if (remaining <= 0) triggerPrint();
+    };
+    pendingImages.forEach((img) => {
+      img.addEventListener("load", onSettle, { once: true });
+      img.addEventListener("error", onSettle, { once: true });
+    });
+  }
+
+  // Safety net: never block printing indefinitely if an image hangs.
+  setTimeout(triggerPrint, 3000);
+
+  return true;
+}
+
 export interface InvoiceFormState {
   billNo: string;
   address: string;
   status: string;
   discount: number;
-  advance: number;
+  payments: Array<{
+    amount: number;
+    date: string;
+  }>;
   securityAmount: number;
   securityReturned?: boolean;
   signature?: string;
@@ -51,10 +104,13 @@ export function getInvoiceContent({
   piecesTotal: number;
   balanceDue: number;
 }) {
-  const totalCollected = (form.advance || 0) + (form.securityAmount || 0);
+  const totalPaid = form.payments.reduce((acc, p) => acc + p.amount, 0);
+  const totalCollected = totalPaid + (form.securityAmount || 0);
   const securityRefundDue = form.status === "returned" && form.securityReturned
     ? 0
     : form.securityAmount || 0;
+
+  const logoUrl = typeof window !== "undefined" ? `${window.location.origin}/logo.png` : "/logo.png";
 
   return `
       <style>
@@ -99,7 +155,7 @@ export function getInvoiceContent({
           <div>॥ श्री नाकोड़ा पार्श्वनाथाय नमः ॥</div>
         </div>
         <div class="header">
-          <img class="logo" src="/logo.png" alt="ARIHANT COLLECTION logo" />
+          <img class="logo" src="${logoUrl}" alt="ARIHANT COLLECTION logo" />
           <div class="company-info">
             <h1 style="margin-bottom: 4px;">ARIHANT COLLECTION </h1>
             <p style="text-transform: none; margin-bottom: 2px;">Address:Maheshwar Road, Near Daluka Market,Barwaha 451115 District -Khargone</p>
@@ -169,10 +225,13 @@ export function getInvoiceContent({
 
         <div class="summary-box">
           <div class="row"><span>Subtotal</span><span>${formatCurrencyINR(piecesTotal)}</span></div>
-          <div class="row"><span>Discount</span><span>${formatCurrencyINR(form.discount)}</span></div>
-          <div class="row"><span>Rental Paid</span><span>${formatCurrencyINR(form.advance)}</span></div>
           <div class="row"><span>Security Deposit Received</span><span>${formatCurrencyINR(form.securityAmount)}</span></div>
-          <div class="row"><span>Total Amount Collected</span><span>${formatCurrencyINR(totalCollected)}</span></div>
+          <div class="row"><span>Discount</span><span>-${formatCurrencyINR(form.discount)}</span></div>
+          ${(form.payments && form.payments.length > 0) ? `
+            <div class="row" style="padding-top: 4px; margin-top: 2px; border-top: 1px solid #eaeaea; flex-direction: column; align-items: flex-start; gap: 2px;">
+              <div style="width: 100%; display: flex; justify-content: space-between;"><strong>Payments Received</strong></div>
+              ${form.payments.map(p => `<div style="width: 100%; display: flex; justify-content: space-between; font-size: 10px; color: #333;"><span>Paid on ${formatDate(p.date)}</span><span>-${formatCurrencyINR(p.amount)}</span></div>`).join('')}
+            </div>` : ''}
           <div class="row"><span>Security Refund Due</span><span>${formatCurrencyINR(securityRefundDue)}</span></div>
           <div class="row total"><span>Rental Balance Due</span><span>${formatCurrencyINR(balanceDue)}</span></div>
         </div>

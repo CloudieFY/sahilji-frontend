@@ -51,6 +51,8 @@ const SUBCATEGORY_BY_CATEGORY = {
   ]
 };
 
+const SIZES = ["34", "36", "38", "40", "42", "44", "46", "48"];
+
 const schema = z.object({
   customId: z.string().trim().min(1, "Required").max(40),
   name: z.string().trim().min(1, "Required").max(80),
@@ -291,7 +293,7 @@ export function EditPieceDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {["XS", "S", "M", "L", "XL"].map((s) => (
+                    {SIZES.map((s) => (
                       <SelectItem key={s} value={s}>
                         {s}
                       </SelectItem>

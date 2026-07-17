@@ -87,6 +87,12 @@ function transformRental(rental: any): Rental {
     id: rental.customId,
     itemId,
     customerId,
+    payments: Array.isArray(rental.payments)
+      ? rental.payments.map((p: any) => ({
+          amount: Number(p.amount) || 0,
+          date: formatDateTime(p.date),
+        }))
+      : [],
     rate: Number(rental.rate) || Number(rental.total) + Number(rental.discount || 0) || 0,
     quantity: Number(rental.quantity) || 1,
     lostQuantity: Number(rental.lostQuantity) || 0,

@@ -64,6 +64,7 @@ export interface Rental {
   rate: number;
   quantity?: number;
   lostQuantity?: number;
+  payments?: Array<{ amount: number; date: string }>;
   discount: number;
   remark: string;
   remarkCompleted?: boolean;

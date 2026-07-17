@@ -50,6 +50,7 @@ export interface Rental {
   rate?: number;
   quantity?: number;
   lostQuantity?: number;
+  payments?: Array<{ amount: number; date: string }>;
 
   // Additional payments for edits/final bills (used by EditRentalDialog)
   additionalPayment?: number;

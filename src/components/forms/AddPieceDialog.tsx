@@ -50,6 +50,8 @@ const SUBCATEGORY_BY_CATEGORY = {
   ],
 };
 
+const SIZES = ["34", "36", "38", "40", "42", "44", "46", "48"];
+
 const schema = z.object({
   customId: z.string().trim().min(1, "Required").max(40),
   name: z.string().trim().min(1, "Required").max(80),
@@ -91,7 +93,7 @@ export function AddPieceDialog({
   };
 
   const defaultCategory = categoryOptions[0] ?? CATEGORIES.WOMENS;
-  const defaultSubcategory = categorySubcategoryMap[defaultCategory]?.[0] ?? "";
+  const defaultSubcategory = categorySubcategoryMap[defaultCategory as keyof typeof categorySubcategoryMap]?.[0] ?? "";
 
   const { addItem } = useStore();
   const [internalOpen, setInternalOpen] = useState(false);
@@ -107,7 +109,7 @@ export function AddPieceDialog({
     customCategory: "",
     subcategory: defaultSubcategory,
     customSubcategory: "",
-    size: "M",
+    size: SIZES[0],
     color: "",
     pricePerDay: "",
     retailValue: "",
@@ -125,7 +127,7 @@ export function AddPieceDialog({
       customCategory: "",
       subcategory: defaultSubcategory,
       customSubcategory: "",
-      size: "M",
+      size: SIZES[0],
       color: "",
       pricePerDay: "",
       retailValue: "",
@@ -378,7 +380,7 @@ export function AddPieceDialog({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {categorySubcategoryMap[form.category as keyof typeof categorySubcategoryMap]?.map((s) => (
+                    {(categorySubcategoryMap[form.category as keyof typeof categorySubcategoryMap] || []).map((s) => (
                           <SelectItem key={s} value={s}>
                             {s}
                           </SelectItem>
@@ -409,7 +411,7 @@ export function AddPieceDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {["XS", "S", "M", "L", "XL"].map((s) => (
+                    {SIZES.map((s) => (
                       <SelectItem key={s} value={s}>
                         {s}
                       </SelectItem>

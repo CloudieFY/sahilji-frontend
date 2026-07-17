@@ -44,7 +44,6 @@ const DEFAULT_SUBCATEGORY_BY_CATEGORY = {
   ],
 };
 
-
 function InventoryItemCard({ item, role, deletingId, handleDelete }: { item: any; role: string; deletingId: string | null; handleDelete: (id: string, name: string) => void; }) {
   const [imgIndex, setImgIndex] = useState(0);
   const images = item.images && item.images.length > 0 ? item.images : (item.image ? [item.image] : []);

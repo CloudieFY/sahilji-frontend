@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "@/data/store";
-import { formatCurrencyINR } from "@/lib/utils";
+import { formatCurrencyINR, getBillRepresentative } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Package, CheckCircle, Calendar, ArrowDownLeft, Search } from "lucide-react";
@@ -28,21 +28,25 @@ function formatDate(dateStr: string) {
 }
 
 function getBillDueAmount(rental: any, allRentals: any[]) {
+  console.log('[DeliveriesPage] getBillDueAmount called for rental:', rental.id);
   const relatedRentals = rental.billNo ? allRentals.filter((r) => r.billNo === rental.billNo) : [rental];
-  if (relatedRentals.length === 0) {
-    return Math.max(0, (Number(rental.total) || 0) - (Number(rental.advance) || 0));
+
+  let aggPiecesTotal = 0;
+  let aggSecurity = 0;
+  let aggDiscount = 0;
+  let aggPaid = 0;
+
+  for (const r of relatedRentals) {
+    aggPiecesTotal += Number(r.total) || 0;
+    aggSecurity += Number(r.securityAmount) || 0;
+    aggDiscount += Number(r.discount) || 0;
+    aggPaid += (r.payments || []).reduce((sum: number, p: { amount: number }) => sum + (Number(p.amount) || 0), 0);
   }
 
-  let aggTotal = 0;
-  let aggAdvance = 0;
-  for (const r of relatedRentals) {
-    // Recalculate total from rate and quantity for accuracy, as 'total' might be stale.
-    const subtotal = (Number((r as any).rate) || 0) * (Number((r as any).quantity) || 1);
-    const security = (r as any).securityReturned ? 0 : (Number(r.securityAmount) || 0);
-    aggTotal += subtotal + security + (Number(r.penalty) || 0) - (Number(r.discount) || 0);
-    aggAdvance += Number(r.advance) || 0;
-  }
-  return Math.max(0, aggTotal - aggAdvance);
+  const finalBillAmount = aggPiecesTotal + aggSecurity - aggDiscount;
+  const dueAmount = Math.max(0, finalBillAmount - aggPaid);
+  console.log('[DeliveriesPage] getBillDueAmount calculated:', { rentalId: rental.id, aggPiecesTotal, aggSecurity, aggDiscount, aggPaid, finalBillAmount, dueAmount });
+  return dueAmount;
 }
 
 export function DeliveriesPage() {
@@ -63,6 +67,7 @@ export function DeliveriesPage() {
   }, [role]);
 
   const deliveriesList = useMemo(() => {
+    console.log('[DeliveriesPage] Computing deliveriesList...');
     const query = localSearch.trim().toLowerCase();
     const targetStr = selectedDate.slice(0, 10);
     return rentals
@@ -105,32 +110,61 @@ export function DeliveriesPage() {
       });
   }, [rentals, items, customers, selectedDate, statusFilter, localSearch]);
 
-  const handleStatusUpdate = async (rental: any, newStatus: string, message: string) => {
+  function buildStatusPayload(newStatus: string) {
+    const payload: any = { status: newStatus };
+    if (newStatus === "returned") {
+      const d = new Date();
+      d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      payload.returnedAt = d.toISOString();
+    }
+    return payload;
+  }
+
+  // Collects a payment (if any) at delivery/return time, then advances status.
+  // A multi-item bill stores its payments on a single representative piece
+  // (see getBillRepresentative). We PATCH that representative directly with the
+  // combined payments array instead of patching the clicked piece and hoping the
+  // backend reroutes it correctly - that indirection is what let money go missing
+  // from the Edit Rental bill summary / invoice for bills with more than one item.
+  const collectPaymentAndAdvanceStatus = async (
+    rental: any,
+    newStatus: "active" | "returned",
+    messages: { collected: string; uncollected: string },
+  ) => {
+    const currentDue = getBillDueAmount(rental, rentals);
+    const collectedEntry = window.prompt(
+      `Enter amount collected now.\nTotal due: ${formatCurrencyINR(currentDue)}`,
+      String(currentDue),
+    );
+    if (collectedEntry == null) return;
+
+    const collectedAmount = Math.max(0, Number(collectedEntry) || 0);
+
     setUpdating(rental.id);
     try {
-      const payload: any = { status: newStatus };
-      if (typeof rental.advance === "number") {
-        payload.advance = rental.advance;
-      }
-      if (typeof rental.penalty === "number") {
-        payload.penalty = rental.penalty;
-      }
-      if (newStatus === "returned") {
-        const d = new Date();
-        d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-        payload.returnedAt = d.toISOString();
-        if (rental.securityReturned) {
-          payload.securityReturned = true;
+      const statusPayload = buildStatusPayload(newStatus);
+
+      if (collectedAmount > 0) {
+        const relatedRentals = rental.billNo ? rentals.filter((r) => r.billNo === rental.billNo) : [rental];
+        const representative = getBillRepresentative(relatedRentals) ?? rental;
+        const existingPayments = relatedRentals.flatMap((r) => r.payments || []);
+        const combinedPayments = [...existingPayments, { amount: collectedAmount, date: today() }];
+        const combinedAdvance = combinedPayments.reduce((sum: number, p: { amount: number }) => sum + (Number(p.amount) || 0), 0);
+
+        if (representative.id === rental.id) {
+          // The clicked piece IS the bill representative - one combined update.
+          await updateRental(rental.id, { ...statusPayload, payments: combinedPayments, advance: combinedAdvance });
+        } else {
+          await updateRental(representative.id, { payments: combinedPayments, advance: combinedAdvance });
+          await updateRental(rental.id, statusPayload);
         }
-        if (rental.securityReturnedAt) {
-          payload.securityReturnedAt = rental.securityReturnedAt;
-        }
+      } else {
+        await updateRental(rental.id, statusPayload);
       }
 
-      await updateRental(rental.id, payload);
-      toast.success(message);
+      toast.success(collectedAmount > 0 ? messages.collected : messages.uncollected);
     } catch (err) {
-      toast.error("Failed to update status.");
+      toast.error("Failed to update status. See console for details.");
       console.error(err);
     } finally {
       setUpdating(null);
@@ -216,18 +250,22 @@ export function DeliveriesPage() {
               ) : (
             deliveriesList.map((rental) => {
               const dueAmount = getBillDueAmount(rental, rentals);
+              const relatedRentals = rental.billNo ? rentals.filter(r => r.billNo === rental.billNo) : [rental];
+              const billSecurityAmount = relatedRentals.reduce((sum, r) => sum + (Number(r.securityAmount) || 0), 0);
+              const isSecurityReturned = relatedRentals.some(r => (r as any).securityReturned);
+
               return (
                   <tr key={rental.id} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                     <td className="p-4 align-middle font-medium">
                       <div>{rental.billNo || rental.id}</div>
                       {canSeeFinancials && (
                         <div className="mt-1.5 flex flex-col gap-0.5">
-                      <div className={`text-xs ${dueAmount > 0 ? "text-destructive font-medium" : "text-muted-foreground font-normal"}`}>
-                        Due: {formatCurrencyINR(dueAmount)}
+                          <div className={`text-xs ${dueAmount > 0 ? "text-destructive font-medium" : "text-muted-foreground font-normal"}`}>
+                            Due: {formatCurrencyINR(dueAmount)}
                           </div>
-                      {(rental.securityAmount || 0) > 0 && !(rental as any).securityReturned && (
+                          {billSecurityAmount > 0 && !isSecurityReturned && (
                             <div className="text-xs font-medium text-amber-600">
-                          Refund Security: {formatCurrencyINR(rental.securityAmount || 0)}
+                              Refund Security: {formatCurrencyINR(billSecurityAmount)}
                             </div>
                           )}
                         </div>
@@ -287,28 +325,15 @@ export function DeliveriesPage() {
                               const pendingTasks = [];
                               if (isFittingPending) pendingTasks.push("Fitting");
                               if (isDrycleanPending) pendingTasks.push("Dryclean");
-                              
+
                               window.alert(`Cannot deliver: Item is not ready.\n\nPending: ${pendingTasks.join(" and ")}`);
                               return;
                             }
 
-                            const currentDue = getBillDueAmount(rental, rentals);
-                            const collectedEntry = window.prompt(
-                              `Enter amount collected now.\nTotal due: ${formatCurrencyINR(currentDue)}`,
-                              String(currentDue),
-                            );
-                            if (collectedEntry == null) return;
-
-                            const collectedAmount = Number(collectedEntry) || 0;
-                            const updates: any = {};
-                            // The logic for additional charges is removed as per the request.
-                            // If you need to add a penalty, it should be done through the Edit Rental dialog.
-
-                            if (collectedAmount > 0) {
-                              updates.advance = (Number(rental.advance) || 0) + collectedAmount;
-                            }
-
-                            handleStatusUpdate({ ...rental, ...updates }, "active", "Delivery status updated successfully!");
+                            collectPaymentAndAdvanceStatus(rental, "active", {
+                              collected: "Delivery status updated successfully!",
+                              uncollected: "Delivery status updated successfully!",
+                            });
                           }}
                           className={(!(rental as any).remarkCompleted || !(rental as any).drycleanCompleted) ? "bg-orange-500 hover:bg-orange-600 text-white gap-2" : "bg-emerald-500 hover:bg-emerald-600 text-white gap-2"}
                         >
@@ -321,19 +346,10 @@ export function DeliveriesPage() {
                           size="sm"
                           disabled={updating === rental.id}
                           onClick={() => {
-                            const balance = getBillDueAmount(rental, rentals);
-                            const collectedEntry = window.prompt(
-                              `Enter amount collected now for this item.\nRemaining due: ${formatCurrencyINR(balance)}`,
-                              String(balance),
-                            );
-                            if (collectedEntry == null) return;
-
-                            const collectedAmount = Math.max(0, Number(collectedEntry) || 0);
-                            const updates: any = {};
-                            if (collectedAmount > 0) {
-                              updates.advance = (Number(rental.advance) || 0) + collectedAmount;
-                            }
-                            handleStatusUpdate({ ...rental, ...updates }, "returned", collectedAmount > 0 ? "Amount collected and product marked as returned." : "Product marked as returned!");
+                            collectPaymentAndAdvanceStatus(rental, "returned", {
+                              collected: "Amount collected and product marked as returned.",
+                              uncollected: "Product marked as returned!",
+                            });
                           }}
                           className="bg-blue-500 hover:bg-blue-600 text-white gap-2"
                         >
