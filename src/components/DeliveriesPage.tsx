@@ -144,21 +144,21 @@ export function DeliveriesPage() {
     try {
       const statusPayload = buildStatusPayload(newStatus);
 
-      if (collectedAmount > 0) {
-        const relatedRentals = rental.billNo ? rentals.filter((r) => r.billNo === rental.billNo) : [rental];
-        const representative = getBillRepresentative(relatedRentals) ?? rental;
-        const existingPayments = relatedRentals.flatMap((r) => r.payments || []);
-        const combinedPayments = [...existingPayments, { amount: collectedAmount, date: today() }];
-        const combinedAdvance = combinedPayments.reduce((sum: number, p: { amount: number }) => sum + (Number(p.amount) || 0), 0);
+      // Always record an entry for this delivery/return checkpoint, even ₹0 - the
+      // Bill Summary and invoice already render every payments[] entry regardless
+      // of amount, so a ₹0 entry shows as "Paid on <date> -₹0", a dated record that
+      // nothing was collected at this checkpoint instead of silently omitting it.
+      const relatedRentals = rental.billNo ? rentals.filter((r) => r.billNo === rental.billNo) : [rental];
+      const representative = getBillRepresentative(relatedRentals) ?? rental;
+      const existingPayments = relatedRentals.flatMap((r) => r.payments || []);
+      const combinedPayments = [...existingPayments, { amount: collectedAmount, date: today() }];
+      const combinedAdvance = combinedPayments.reduce((sum: number, p: { amount: number }) => sum + (Number(p.amount) || 0), 0);
 
-        if (representative.id === rental.id) {
-          // The clicked piece IS the bill representative - one combined update.
-          await updateRental(rental.id, { ...statusPayload, payments: combinedPayments, advance: combinedAdvance });
-        } else {
-          await updateRental(representative.id, { payments: combinedPayments, advance: combinedAdvance });
-          await updateRental(rental.id, statusPayload);
-        }
+      if (representative.id === rental.id) {
+        // The clicked piece IS the bill representative - one combined update.
+        await updateRental(rental.id, { ...statusPayload, payments: combinedPayments, advance: combinedAdvance });
       } else {
+        await updateRental(representative.id, { payments: combinedPayments, advance: combinedAdvance });
         await updateRental(rental.id, statusPayload);
       }
 
