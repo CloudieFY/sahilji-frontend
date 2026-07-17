@@ -158,8 +158,14 @@ export function DeliveriesPage() {
         // The clicked piece IS the bill representative - one combined update.
         await updateRental(rental.id, { ...statusPayload, payments: combinedPayments, advance: combinedAdvance });
       } else {
-        await updateRental(representative.id, { payments: combinedPayments, advance: combinedAdvance });
-        await updateRental(rental.id, statusPayload);
+        // These two writes touch different documents (the representative's
+        // payments, this piece's status) with no dependency between them - run
+        // them in parallel instead of waiting on one round trip before starting
+        // the next.
+        await Promise.all([
+          updateRental(representative.id, { payments: combinedPayments, advance: combinedAdvance }),
+          updateRental(rental.id, statusPayload),
+        ]);
       }
 
       toast.success(collectedAmount > 0 ? messages.collected : messages.uncollected);

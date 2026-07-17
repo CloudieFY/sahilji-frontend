@@ -186,9 +186,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await customersApi.delete(id);
         console.info("[store] deleteCustomer backend success", { id });
         setCustomers((prev) => prev.filter((customer) => customer.id !== id));
-        // Optionally refresh to keep totals in sync
-        await refreshData();
-        console.info("[store] deleteCustomer state refreshed", { id });
+        // Local removal already reflects the delete; reconcile any secondary
+        // effects (e.g. related aggregates) in the background instead of making
+        // the caller wait on a full items+customers+rentals refetch.
+        refreshData().catch((err) => console.error("[store] background refresh after deleteCustomer failed", err));
+        console.info("[store] deleteCustomer local state updated; background refresh queued", { id });
       },
       addCustomer: async (data) => {
         console.info("[store] addCustomer started", data);
@@ -203,10 +205,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         console.info("[store] addRental started", data);
         const newRental = await rentalsApi.create(data);
         console.info("[store] addRental backend response", newRental);
-        // Refresh data from backend to ensure all state is updated correctly
-        await refreshData();
         const transformed = transformRental(newRental);
-        console.info("[store] addRental data refreshed", transformed);
+        // The backend only returns the FIRST piece of a multi-item bill as a
+        // representative - sibling pieces and updated item stock aren't in this
+        // response, so a full refresh is still needed for correctness. Show the
+        // representative immediately and reconcile the rest (siblings, item
+        // status) in the background instead of making the caller wait on a full
+        // items+customers+rentals refetch before the dialog can close.
+        setRentals((prev) => [transformed, ...prev]);
+        refreshData().catch((err) => console.error("[store] background refresh after addRental failed", err));
+        console.info("[store] addRental optimistic state updated; background refresh queued", transformed);
         return transformed;
       },
       deleteRental: async (id, billNo) => {
@@ -219,22 +227,40 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         } else {
           setRentals((prev) => prev.filter((rental) => rental.id !== id));
         }
-        await refreshData();
-        console.info("[store] deleteRental state refreshed", { id, billNo });
+        // Deleting a rental also frees up item stock and adjusts customer totals on
+        // the backend; reconcile those in the background so the delete itself
+        // resolves instantly instead of blocking on a full refetch.
+        refreshData().catch((err) => console.error("[store] background refresh after deleteRental failed", err));
+        console.info("[store] deleteRental local state updated; background refresh queued", { id, billNo });
       },
       updateItem: async (id, data) => {
         console.info("[store] updateItem started", { id, dataKeys: Object.keys(data || {}) });
         const updated = await itemsApi.update(id, data);
         console.info("[store] updateItem backend response", updated);
-        await refreshData();
-        return transformItem(updated);
+        const transformed = transformItem(updated);
+        setItems((prev) => prev.map((i) => (i.id === transformed.id ? transformed : i)));
+        return transformed;
       },
       updateRental: async (id, data) => {
         console.info("[store] updateRental started", { id, dataKeys: Object.keys(data || {}) });
         const updated = await rentalsApi.update(id, data);
         console.info("[store] updateRental backend response", updated);
-        await refreshData();
-        return updated as Rental;
+        const transformed = transformRental(updated);
+        setRentals((prev) => {
+          const idx = prev.findIndex((r) => r.id === transformed.id);
+          if (idx === -1) return [transformed, ...prev];
+          const next = prev.slice();
+          next[idx] = transformed;
+          return next;
+        });
+        // The backend returns the rental with its item populated - use it to keep
+        // item availability status in sync without a separate items refetch.
+        const rawItem = (updated as any)?.item;
+        if (rawItem && typeof rawItem === "object" && rawItem.customId) {
+          const transformedItem = transformItem(rawItem);
+          setItems((prev) => prev.map((i) => (i.id === transformedItem.id ? transformedItem : i)));
+        }
+        return transformed;
       },
       getItem: (id) => items.find((i) => i.id === id),
       getCustomer: (id) => customers.find((c) => c.id === id),
