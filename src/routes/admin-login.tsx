@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import brandLogo from "@/assets/logo.png";
 import { Eye, EyeOff } from "lucide-react";
 import { Link } from "../App";
+import { authApi } from "@/lib/api";
 
 // Custom lightweight navigation hook
 const useNavigate = () => {
@@ -23,20 +24,25 @@ export default function AdminLoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    const trimmedUser = username.trim();
-    const trimmedPass = password.trim();
+  const [loading, setLoading] = useState(false);
 
-    // Mock Admin Authentication Logic
-    if ((trimmedUser === "90394 89995") && trimmedPass === "arihant@55") {
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const user = await authApi.adminLogin({
+        username: username.trim(),
+        password: password.trim(),
+      });
       localStorage.setItem("user_role", "admin");
-      localStorage.setItem("user_name", "Admin");
+      localStorage.setItem("user_name", user.name || "Admin");
+      if (user.token) localStorage.setItem("auth_token", user.token);
       toast.success("Logged in as Admin");
       navigate({ to: "/" });
-    } else {
-      toast.error("Invalid admin credentials. Please try again.");
+    } catch (err: any) {
+      toast.error(err?.message || "Invalid admin credentials. Please try again.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -82,8 +88,8 @@ export default function AdminLoginPage() {
                 {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
               </button>
           </div>
-          <Button type="submit" className="w-full bg-gold text-gold-foreground hover:bg-gold/90 mt-2">
-            Sign In as Admin
+          <Button type="submit" disabled={loading} className="w-full bg-gold text-gold-foreground hover:bg-gold/90 mt-2">
+            {loading ? "Signing in..." : "Sign In as Admin"}
           </Button>
         </form>
         <p className="text-center text-sm text-muted-foreground mt-6">

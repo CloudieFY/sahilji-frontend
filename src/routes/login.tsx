@@ -45,6 +45,7 @@ export default function LoginPage() {
       const role = String(user.role || "").trim().toLowerCase();
       localStorage.setItem("user_role", role);
       localStorage.setItem("user_name", user.name);
+      if (user.token) localStorage.setItem("auth_token", user.token);
       toast.success(`Logged in as ${user.name}`);
       navigate({ to: role === "admin" ? "/" : "/availability" });
     } catch (err: any) {

@@ -36,6 +36,7 @@ interface StoreState {
     customer: Omit<Customer, "_id" | "id" | "customId" | "totalSpent" | "rentals" | "joined" | "createdAt" | "updatedAt">,
   ) => Promise<Customer>;
   addRental: (rental: Omit<Rental, "_id" | "id" | "customId" | "createdAt" | "updatedAt">) => Promise<Rental>;
+  updateCustomer: (id: string, data: Partial<Customer>) => Promise<Customer>;
   deleteCustomer: (id: string) => Promise<void>;
   deleteRental: (id: string, billNo?: string) => Promise<void>;
   updateRental: (id: string, data: Partial<Rental>) => Promise<Rental>;
@@ -191,6 +192,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const transformed = transformCustomer(newCustomer);
         setCustomers((prev) => [transformed, ...prev]);
         console.info("[store] addCustomer state updated", transformed);
+        return transformed;
+      },
+      updateCustomer: async (id, data) => {
+        console.info("[store] updateCustomer started", { id, dataKeys: Object.keys(data || {}) });
+        const updated = await customersApi.update(id, data);
+        console.info("[store] updateCustomer backend response", updated);
+        const transformed = transformCustomer(updated);
+        setCustomers((prev) => prev.map((c) => (c.id === id ? transformed : c)));
         return transformed;
       },
       addRental: async (data) => {

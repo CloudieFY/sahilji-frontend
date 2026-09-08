@@ -202,6 +202,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   function handleLogout() {
     localStorage.removeItem("user_role");
     localStorage.removeItem("user_name");
+    localStorage.removeItem("auth_token");
     window.location.href = "/login";
   }
 

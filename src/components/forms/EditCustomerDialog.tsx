@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { z } from "zod";
 import { toast } from "sonner";
 import {
@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useStore } from "@/data/store";
+import type { Customer } from "@/lib/api";
 
 const schema = z.object({
   name: z.string().trim().min(1, "Name required").max(100),
@@ -37,32 +38,46 @@ const schema = z.object({
   tier: z.enum(["Standard", "Gold", "Platinum"]),
 });
 
-export function AddCustomerDialog({
+export function EditCustomerDialog({
+  customer,
   trigger,
   open,
   onOpenChange,
-  onCreated,
+  onUpdated,
 }: {
+  customer: Customer;
   trigger?: ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  onCreated?: (id: string) => void;
+  onUpdated?: (c: Customer) => void;
 }) {
-  const { addCustomer } = useStore();
+  const { updateCustomer } = useStore();
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = open !== undefined;
   const isOpen = isControlled ? open : internalOpen;
   const setOpen = isControlled ? onOpenChange! : setInternalOpen;
 
   const [form, setForm] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    secondaryPhone: "",
-    tier: "Standard" as "Standard" | "Gold" | "Platinum",
+    name: customer.name ?? "",
+    email: customer.email ?? "",
+    phone: customer.phone ?? "",
+    secondaryPhone: customer.secondaryPhone ?? "",
+    tier: (customer.tier ?? "Standard") as "Standard" | "Gold" | "Platinum",
   });
-
   const [loading, setLoading] = useState(false);
+
+  // Re-sync the form whenever the dialog opens or the source customer changes.
+  useEffect(() => {
+    if (isOpen) {
+      setForm({
+        name: customer.name ?? "",
+        email: customer.email ?? "",
+        phone: customer.phone ?? "",
+        secondaryPhone: customer.secondaryPhone ?? "",
+        tier: (customer.tier ?? "Standard") as "Standard" | "Gold" | "Platinum",
+      });
+    }
+  }, [isOpen, customer]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -74,18 +89,20 @@ export function AddCustomerDialog({
     setLoading(true);
     try {
       const payload = {
-        ...parsed.data,
-        email: parsed.data.email ? parsed.data.email : undefined,
-        secondaryPhone: parsed.data.secondaryPhone ? parsed.data.secondaryPhone : undefined,
+        name: parsed.data.name,
+        phone: parsed.data.phone,
+        tier: parsed.data.tier,
+        // Send empty string so the backend can clear an optional field.
+        email: parsed.data.email ? parsed.data.email : "",
+        secondaryPhone: parsed.data.secondaryPhone ? parsed.data.secondaryPhone : "",
       };
-      const customer = await addCustomer(payload);
-      toast.success(`Welcomed ${customer.name}`);
-      setForm({ name: "", email: "", phone: "", secondaryPhone: "", tier: "Standard" });
+      const updated = await updateCustomer(customer.id, payload);
+      toast.success(`${updated.name} updated`);
       setOpen(false);
-      onCreated?.(customer.id);
+      onUpdated?.(updated);
     } catch (error) {
       const message =
-        error instanceof Error && error.message ? error.message : "Failed to add customer";
+        error instanceof Error && error.message ? error.message : "Failed to update client";
       toast.error(message);
       console.error(error);
     } finally {
@@ -98,27 +115,24 @@ export function AddCustomerDialog({
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="font-display text-2xl">Add a Client</DialogTitle>
-          <DialogDescription>
-            Welcome a new member to the maison.
-          </DialogDescription>
+          <DialogTitle className="font-display text-2xl">Edit Client</DialogTitle>
+          <DialogDescription>Update this client's details.</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid gap-2">
-            <Label htmlFor="cname">Name</Label>
+            <Label htmlFor="ecname">Name</Label>
             <Input
-              id="cname"
+              id="ecname"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Eloise Marchand"
               maxLength={100}
               required
             />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="cemail">Email (optional)</Label>
+            <Label htmlFor="ecemail">Email (optional)</Label>
             <Input
-              id="cemail"
+              id="ecemail"
               type="email"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
@@ -127,35 +141,33 @@ export function AddCustomerDialog({
             />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="cphone">Customer number</Label>
+            <Label htmlFor="ecphone">Customer number</Label>
             <Input
-              id="cphone"
+              id="ecphone"
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              placeholder="+33 6 21 44 80 12"
               maxLength={40}
               required
             />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="csecondaryphone">Customer number 2 (optional)</Label>
+            <Label htmlFor="ecsecondaryphone">Customer number 2 (optional)</Label>
             <Input
-              id="csecondaryphone"
+              id="ecsecondaryphone"
               value={form.secondaryPhone}
               onChange={(e) => setForm({ ...form, secondaryPhone: e.target.value })}
-              placeholder="+33 6 22 44 80 13"
               maxLength={40}
             />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="ctier">Tier</Label>
+            <Label htmlFor="ectier">Tier</Label>
             <Select
               value={form.tier}
               onValueChange={(v: "Standard" | "Gold" | "Platinum") =>
                 setForm({ ...form, tier: v })
               }
             >
-              <SelectTrigger id="ctier">
+              <SelectTrigger id="ectier">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -168,11 +180,7 @@ export function AddCustomerDialog({
             </Select>
           </div>
           <DialogFooter>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setOpen(false)}
-            >
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={loading}>
               Cancel
             </Button>
             <Button
@@ -180,7 +188,7 @@ export function AddCustomerDialog({
               className="bg-gold text-gold-foreground hover:bg-gold/90"
               disabled={loading}
             >
-              {loading ? "Adding..." : "Add Client"}
+              {loading ? "Saving..." : "Save changes"}
             </Button>
           </DialogFooter>
         </form>

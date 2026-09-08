@@ -5,7 +5,8 @@ const API_ROOT =
   (typeof process !== 'undefined'
     ? (process as any).env?.VITE_API_URL || (process as any).env?.EXPO_PUBLIC_API_URL
     : undefined) ||
-  'http://localhost:3011';
+  // Local-dev fallback. Must match the backend's PORT in sahilji-backend/.env.
+  'http://localhost:5002';
 
 const API_BASE = `${API_ROOT.replace(/\/$/, '')}/api`;
 
@@ -90,8 +91,9 @@ export interface User {
   name: string;
   email?: string;
   phone?: string;
-  role: 'admin' | 'employee';
+  role: 'admin' | 'employee' | 'reception';
   status?: 'active' | 'pending';
+  token?: string;
 }
 
 async function apiRequest<T>(url: string, options?: RequestInit): Promise<T> {
@@ -114,6 +116,12 @@ async function apiRequest<T>(url: string, options?: RequestInit): Promise<T> {
   // Hardening: only allow known role headers from client.
   const normalizedRole = role ? String(role).trim().toLowerCase() : undefined;
   const safeRole = normalizedRole && ['admin', 'reception', 'employee'].includes(normalizedRole) ? normalizedRole : undefined;
+
+  // Signed auth token (preferred by the backend over the spoofable role header).
+  const authToken =
+    typeof window !== 'undefined' && window.localStorage
+      ? window.localStorage.getItem('auth_token') || undefined
+      : undefined;
 
 
   let logBody: unknown = '';
@@ -143,6 +151,7 @@ async function apiRequest<T>(url: string, options?: RequestInit): Promise<T> {
       headers: {
         ...(options?.headers || {}),
         ...(safeRole ? { 'x-user-role': safeRole } : {}),
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       },
     });
   } catch (error) {
@@ -266,7 +275,9 @@ export const rentalsApi = {
 export const authApi = {
   login: (data: { phone: string; password: string }) =>
     apiRequest<User>(`${API_BASE}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }),
-  signup: (data: { name: string; phone: string; password: string; role: 'employee'; status: 'pending' }) =>
+  adminLogin: (data: { username: string; password: string }) =>
+    apiRequest<User>(`${API_BASE}/auth/admin-login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }),
+  signup: (data: { name: string; phone: string; password: string; role: 'employee' | 'reception'; status: 'pending' }) =>
     apiRequest<User>(`${API_BASE}/auth/signup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }),
   getUsers: () => apiRequest<User[]>(`${API_BASE}/auth/users`),
   updateUserStatus: (identifier: string, status: 'active' | 'pending') =>

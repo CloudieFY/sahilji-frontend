@@ -17,6 +17,7 @@ import ReturnItems from './routes/return-items';
 import Settings from './routes/settings';
 import SignupPage from './routes/signup';
 import ReceptionSignupPage from './routes/reception-signup';
+import CustomerDetailPage from './routes/customer-detail';
 
 
 // --- 1. Custom Link Component ---
@@ -42,7 +43,6 @@ export const Link = ({ to, children, className, onClick }: { to: string, childre
   );
 };
 
-const CustomerDetails = ({ id }: { id: string }) => <div><h1>Customer Details: {id}</h1></div>;
 const NotFound = () => <div><h1>404</h1><p>Page not found.</p></div>;
 
 // --- 3. Main App Component ---
@@ -88,7 +88,7 @@ export default function App() {
     // Dynamic route matching (e.g /customers/123)
     const customerMatch = currentPath.match(/^\/customers\/([^/]+)$/);
     if (customerMatch) {
-      content = <CustomerDetails id={customerMatch[1]} />;
+      content = <CustomerDetailPage id={decodeURIComponent(customerMatch[1])} />;
     }
   }
 
