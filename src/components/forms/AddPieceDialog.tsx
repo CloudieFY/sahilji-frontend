@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useStore } from "@/data/store";
-import { formatCurrencyINR } from "@/lib/utils";
+import { formatCurrencyINR, SIZE_OPTIONS, DEFAULT_SIZE } from "@/lib/utils";
 import { X } from "lucide-react";
 import type { ItemStatus } from "@/data/mock";
 
@@ -56,7 +56,7 @@ const schema = z.object({
   designer: z.string().trim().min(1, "Required").max(60),
   category: z.string().trim().min(1, "Required").max(20),
   subcategory: z.string().trim().min(1, "Required").max(40),
-  size: z.string().trim().min(1, "Required").max(8),
+  size: z.string().trim().min(1, "Required").max(16),
   color: z.string().trim().min(1, "Required").max(30),
   pricePerDay: z.coerce.number().min(0),
   retailValue: z.coerce.number().min(0).optional(),
@@ -107,7 +107,7 @@ export function AddPieceDialog({
     customCategory: "",
     subcategory: defaultSubcategory,
     customSubcategory: "",
-    size: "M",
+    size: DEFAULT_SIZE,
     color: "",
     pricePerDay: "",
     retailValue: "",
@@ -125,7 +125,7 @@ export function AddPieceDialog({
       customCategory: "",
       subcategory: defaultSubcategory,
       customSubcategory: "",
-      size: "M",
+      size: DEFAULT_SIZE,
       color: "",
       pricePerDay: "",
       retailValue: "",
@@ -409,7 +409,7 @@ export function AddPieceDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {["XS", "S", "M", "L", "XL"].map((s) => (
+                    {SIZE_OPTIONS.map((s) => (
                       <SelectItem key={s} value={s}>
                         {s}
                       </SelectItem>

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { AppShell } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useStore } from "@/data/store";
-import { formatCurrencyINR } from "@/lib/utils";
+import { formatCurrencyINR, DEFAULT_SIZE } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -328,7 +328,7 @@ export default function InventoryPage() {
             designer: String(row.designer || row.brand || row.maker || "Unknown"),
             category: String(row.category || row.department || "Women's"),
             subcategory: String(row.subcategory || row.type || row.style || "Lehanga"),
-            size: String(row.size || row.fit || "M"),
+            size: String(row.size || row.fit || DEFAULT_SIZE),
             color: String(row.color || row.shade || row.hue || "Unknown"),
             pricePerDay: (() => {
               const raw = row.price ?? row.rent ?? row.rate ?? row.cost ?? row["price/day"] ?? row["price per day"] ?? row["rent/day"] ?? row["price / day (inr)"] ?? row["price/day (inr)"] ?? 0;
