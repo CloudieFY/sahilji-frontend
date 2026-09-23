@@ -30,6 +30,7 @@ import {
 import { Edit2, Plus, Trash2, Search } from "lucide-react";
 import { EditRentalDialog } from "@/components/forms/EditRentalDialog";
 import { NewRentalDialog } from "@/components/forms/NewRentalDialog";
+import { ViewInvoiceDialog } from "@/components/forms/ViewInvoiceDialog";
 import { toast } from "sonner";
 
 function formatDate(dateStr: string) {
@@ -296,6 +297,7 @@ export default function RentalsPage() {
                     </span>
                   </div>
                   <div className="mt-3 flex justify-end items-center gap-2">
+                    <ViewInvoiceDialog rental={r} disabled={deletingId === r.id} />
                     <EditRentalDialog
                       rental={r}
                       trigger={
@@ -432,6 +434,7 @@ export default function RentalsPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
+                      <ViewInvoiceDialog rental={r} disabled={deletingId === r.id} />
                       <EditRentalDialog
                         rental={r}
                         trigger={

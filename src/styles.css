@@ -3,7 +3,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+@variant dark (&:is(.dark *));
 
 /*
  * Velvet Vault - luxury rental operations design system.
@@ -59,74 +59,74 @@
 }
 
 :root {
-  --radius: 0.375rem;
+  --radius: 0.5rem;
 
-  --background: oklch(0.98 0.015 95);
-  --foreground: oklch(0.35 0.03 100);
+  /* Light Sky Blue Theme (#F0F7FF) with Palette Accents (#DF301C Red, #FF9100 Orange, #00B7CD Cyan) */
+  --background: #F0F7FF;
+  --foreground: #1E293B;
 
-  --card: oklch(0.96 0.012 100 / 95%);
-  --card-foreground: oklch(0.35 0.03 100);
+  --card: #FFFFFF;
+  --card-foreground: #1E293B;
 
-  --popover: oklch(0.97 0.015 95);
-  --popover-foreground: oklch(0.35 0.03 100);
+  --popover: #FFFFFF;
+  --popover-foreground: #1E293B;
 
-  --primary: oklch(0.65 0.08 125);
-  --primary-foreground: oklch(1 0 0);
+  --primary: #DF301C;
+  --primary-foreground: #FFFFFF;
 
-  --secondary: oklch(0.72 0.05 125);
-  --secondary-foreground: oklch(1 0 0);
+  --secondary: #E4F1FF;
+  --secondary-foreground: #1E293B;
 
-  --muted: oklch(0.72 0.05 125);
-  --muted-foreground: oklch(0.45 0.04 120);
+  --muted: #E4F1FF;
+  --muted-foreground: #64748B;
 
-  --accent: oklch(0.65 0.18 50);
-  --accent-foreground: oklch(1 0 0);
+  --accent: #FF9100;
+  --accent-foreground: #FFFFFF;
 
-  --destructive: oklch(0.55 0.2 25);
-  --destructive-foreground: oklch(0.98 0.01 80);
+  --destructive: #DF301C;
+  --destructive-foreground: #FFFFFF;
 
-  --border: oklch(0.65 0.08 125 / 20%);
-  --input: oklch(0.65 0.08 125 / 12%);
-  --ring: oklch(0.65 0.08 125 / 50%);
+  --border: #D0E4F7;
+  --input: #F0F7FF;
+  --ring: #DF301C;
 
-  --gold: oklch(0.65 0.18 50);
-  --gold-foreground: oklch(1 0 0);
-  --emerald: oklch(0.65 0.08 125);
-  --burgundy: oklch(0.72 0.05 125);
+  --gold: #FF9100;
+  --gold-foreground: #FFFFFF;
+  --emerald: #00B7CD;
+  --burgundy: #DF301C;
 
   --gradient-noir: linear-gradient(
-    145deg,
-    oklch(0.98 0.015 95) 0%,
-    oklch(0.97 0.015 95) 48%,
-    oklch(0.96 0.012 100) 100%
+    180deg,
+    #F0F7FF 0%,
+    #E4F1FF 100%
   );
   --gradient-gold: linear-gradient(
     135deg,
-    oklch(0.65 0.08 125) 0%,
-    oklch(0.65 0.18 50) 100%
+    #DF301C 0%,
+    #FF9100 100%
   );
-  --shadow-elegant: 0 28px 70px -30px oklch(0 0 0 / 0.72);
-  --shadow-glow: 0 0 46px oklch(0.8 0.112 80 / 0.18);
+  --shadow-elegant: 0 10px 30px -10px rgba(0, 0, 0, 0.05);
+  --shadow-glow: 0 0 25px rgba(223, 48, 28, 0.1);
 
-  --chart-1: oklch(0.65 0.08 125);
-  --chart-2: oklch(0.65 0.18 50);
-  --chart-3: oklch(0.72 0.05 125);
-  --chart-4: oklch(0.75 0.1 40);
-  --chart-5: oklch(0.6 0.12 280);
+  --chart-1: #DF301C;
+  --chart-2: #FF9100;
+  --chart-3: #00B7CD;
+  --chart-4: #E67E22;
+  --chart-5: #2C3E50;
 
-  --sidebar: oklch(0.97 0.015 95 / 92%);
-  --sidebar-foreground: oklch(0.35 0.03 100);
-  --sidebar-primary: oklch(0.65 0.08 125);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.65 0.08 125 / 12%);
-  --sidebar-accent-foreground: oklch(0.35 0.03 100);
-  --sidebar-border: oklch(0.65 0.08 125 / 15%);
-  --sidebar-ring: oklch(0.65 0.08 125 / 50%);
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #1E293B;
+  --sidebar-primary: #DF301C;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #E4F1FF;
+  --sidebar-accent-foreground: #DF301C;
+  --sidebar-border: #D0E4F7;
+  --sidebar-ring: #DF301C;
 }
 
 .dark {
-  --background: oklch(0.98 0.015 95);
-  --foreground: oklch(0.35 0.03 100);
+  --background: #F0F7FF;
+  --foreground: #1E293B;
 }
 
 @layer base {
@@ -141,11 +141,7 @@
 
   body {
     min-height: 100vh;
-    background:
-      radial-gradient(circle at 15% 0%, oklch(0.65 0.08 125 / 0.12), transparent 34rem),
-      radial-gradient(circle at 90% 20%, oklch(0.65 0.18 50 / 0.08), transparent 30rem),
-      var(--gradient-noir);
-    background-attachment: fixed;
+    background: #F0F7FF;
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;

@@ -101,10 +101,13 @@ export default function DashboardPage() {
     const billGroups = new Map<string, { isToday: boolean; isThisMonth: boolean }>();
 
     rentals.forEach((r) => {
-      const rDateObj = new Date(r.startDate || (r as any).createdAt || "");
+      const dateVal = (r as any).createdAt || r.startDate || "";
+      const rDateObj = new Date(dateVal);
       if (Number.isNaN(rDateObj.getTime())) return;
 
-      const rDateStr = rDateObj.toISOString().slice(0, 10);
+      const rDateStr = (r as any).createdAt
+        ? new Date((r as any).createdAt).toISOString().slice(0, 10)
+        : (r.startDate || "").slice(0, 10);
       const isToday = rDateStr === todayStr;
       const isThisMonth =
         rDateObj.getMonth() === currentMonth && rDateObj.getFullYear() === currentYear;

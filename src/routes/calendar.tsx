@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { AppShell } from "@/components/AppShell";
 import { useStore } from "@/data/store";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { formatCurrencyINR } from "@/lib/utils";
-import { ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Eye, FileSpreadsheet } from "lucide-react";
+import { ViewInvoiceDialog } from "@/components/forms/ViewInvoiceDialog";
 import * as XLSX from "xlsx";
 import {
   Dialog,
@@ -51,12 +53,29 @@ export default function CalendarPage() {
   const { rentals, getItem, getCustomer, searchQuery, updateRental, updateItem } = useStore();
   const [role, setRole] = useState("");
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [viewBookingsOpen, setViewBookingsOpen] = useState(false);
+  const [startDateFilter, setStartDateFilter] = useState("");
+  const [endDateFilter, setEndDateFilter] = useState("");
   const [currentDate, setCurrentDate] = useState(() => {
     const now = new Date();
     now.setDate(1);
     now.setHours(0, 0, 0, 0);
     return now;
   });
+
+  const handleStartDateChange = (val: string) => {
+    setStartDateFilter(val);
+    if (val) {
+      const [y, m] = val.split("-").map(Number);
+      if (y && m) {
+        setCurrentDate(new Date(y, m - 1, 1));
+      }
+    }
+  };
+
+  const handleEndDateChange = (val: string) => {
+    setEndDateFilter(val);
+  };
 
   const todayStr = today();
   const YEAR = currentDate.getFullYear();
@@ -67,8 +86,15 @@ export default function CalendarPage() {
   const filteredRentals = rentals.filter((r) => {
     const item = getItem(r.itemId);
     const customer = getCustomer(r.customerId);
+    const targetDateStr = (r.deliveryDate || r.startDate || "").slice(0, 10);
+
+    if (startDateFilter && targetDateStr < startDateFilter) return false;
+    if (endDateFilter && targetDateStr > endDateFilter) return false;
+
     const searchable = [
       r.id,
+      r.billNo,
+      r.itemNo,
       r.status,
       r.startDate,
       r.endDate,
@@ -106,15 +132,70 @@ export default function CalendarPage() {
   filteredRentals.forEach((r) => {
     const targetDateStr = (r.deliveryDate || r.startDate || "").slice(0, 10);
     if (!targetDateStr) return;
-    
+
     const [y, m, d] = targetDateStr.split("-").map(Number);
     if (!y || !m || !d) return;
 
-    if (m - 1 !== MONTH || y !== YEAR) return;
     const key = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     eventsByDate[key] ??= [];
     eventsByDate[key].push(r);
   });
+
+
+
+  const displayMonths = useMemo(() => {
+    if (startDateFilter && endDateFilter) {
+      const s = new Date(startDateFilter);
+      const e = new Date(endDateFilter);
+      if (!isNaN(s.getTime()) && !isNaN(e.getTime()) && s <= e) {
+        const list = [];
+        const cur = new Date(s.getFullYear(), s.getMonth(), 1);
+        const endLimit = new Date(e.getFullYear(), e.getMonth(), 1);
+        let count = 0;
+        while (cur <= endLimit && count < 12) {
+          const y = cur.getFullYear();
+          const m = cur.getMonth();
+          const label = cur.toLocaleString("default", { month: "long", year: "numeric" });
+          list.push({ year: y, month: m, label });
+          cur.setMonth(cur.getMonth() + 1);
+          count++;
+        }
+        if (list.length > 0) return list;
+      }
+    }
+    const y = currentDate.getFullYear();
+    const m = currentDate.getMonth();
+    const label = currentDate.toLocaleString("default", { month: "long", year: "numeric" });
+    return [{ year: y, month: m, label }];
+  }, [startDateFilter, endDateFilter, currentDate]);
+
+  const getMonthCells = (year: number, month: number) => {
+    const firstDay = new Date(year, month, 1);
+    const startOffset = (firstDay.getDay() + 6) % 7; // Mon-start
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+
+    const cells: ({ day: number; date: string } | null)[] = [];
+    for (let i = 0; i < totalCells; i++) {
+      const dayNum = i - startOffset + 1;
+      if (dayNum < 1 || dayNum > daysInMonth) {
+        cells.push(null);
+      } else {
+        const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+        cells.push({ day: dayNum, date });
+      }
+    }
+    return cells;
+  };
+
+  const getMonthEventsCount = (year: number, month: number) => {
+    return filteredRentals.filter((r) => {
+      const targetDateStr = (r.deliveryDate || r.startDate || "").slice(0, 10);
+      if (!targetDateStr) return false;
+      const [y, m] = targetDateStr.split("-").map(Number);
+      return y === year && m - 1 === month;
+    }).length;
+  };
 
   const handlePrevMonth = () => setCurrentDate(new Date(YEAR, MONTH - 1, 1));
   const handleNextMonth = () => setCurrentDate(new Date(YEAR, MONTH + 1, 1));
@@ -313,70 +394,119 @@ export default function CalendarPage() {
       });
   };
 
-  const handleExportExcel = () => {
-    if (!selectedDate || selectedEvents.length === 0) {
-      console.info("[calendar] export skipped", {
-        selectedDate,
-        selectedEvents: selectedEvents.length,
-      });
+  const handleExportExcel = (
+    rentalsToExport = selectedDate ? selectedEvents : filteredRentals,
+    fileName = "Bookings"
+  ) => {
+    if (!rentalsToExport || rentalsToExport.length === 0) {
+      toast.error("No bookings to export");
       return;
     }
-    console.info("[calendar] export started", {
-      selectedDate,
-      selectedEvents: selectedEvents.length,
-    });
-    const exportData = selectedEvents.map((e) => {
+    const exportData = rentalsToExport.map((e) => {
       const item = getItem(e.itemId);
+      const customer = getCustomer(e.customerId);
       return {
         "Bill No": e.billNo || e.id,
+        Client: customer?.name || "Unknown",
+        Phone: customer?.phone || "-",
         "Item No": e.itemNo || e.itemId,
         "Piece / Item": item?.name || "Unknown",
+        Size: item?.size || "-",
+        Color: item?.color || "-",
+        "Start Date": formatDate(e.startDate),
+        "End Date": formatDate(e.endDate),
         "Delivery Date": formatDate(e.deliveryDate || e.startDate),
+        Delivery: (e as any).deliveryTimePeriod || "Afternoon",
         Status: e.status,
         Remark: e.remark || "-",
-        "Confirmed By": (e as any).remarkConfirmedBy || "-",
-        "Admin Recheck": (e as any).adminReconfirmed ? "Recheck is done by admin" : "-",
-        "Admin Recheck By": (e as any).adminReconfirmedBy || "-",
+        "Dryclean Done": (e as any).drycleanCompleted ? "Yes" : "No",
+        "Fitting Ready": (e as any).remarkCompleted ? "Yes" : "No",
+        "Ready Confirmed": (e as any).adminReconfirmed ? "Yes" : "No",
       };
     });
     const worksheet = XLSX.utils.json_to_sheet(exportData);
-    worksheet["!cols"] = [
-      { wch: 16 },
-      { wch: 16 },
-      { wch: 16 },
-      { wch: 16 },
-      { wch: 12 },
-      { wch: 35 },
-      { wch: 18 },
-      { wch: 26 },
-      { wch: 18 },
-    ];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Bookings");
-    XLSX.writeFile(workbook, `Bookings_${selectedDate}.xlsx`);
-    console.info("[calendar] export completed", {
-      selectedDate,
-      rows: exportData.length,
-    });
+    const safeName = fileName.replace(/[^a-zA-Z0-9_-]/g, "_");
+    XLSX.writeFile(workbook, `${safeName}.xlsx`);
+    toast.success("Excel file downloaded!");
   };
 
   return (
     <AppShell>
-      <div className="flex items-end justify-between mb-6 sm:mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
         <div>
           <p className="text-[10px] uppercase tracking-[0.4em] text-gold">Diary</p>
-          <h1 className="mt-2 font-display text-3xl sm:text-4xl">{MONTH_NAME}</h1>
+          <h1 className="mt-1 font-display text-3xl sm:text-4xl">{MONTH_NAME}</h1>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={handlePrevMonth}>
+
+        <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="icon" className="h-9 w-9 bg-card" onClick={handlePrevMonth}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <Button variant="outline" size="sm" className="hidden sm:inline-flex" onClick={handleToday}>
+          <Button variant="outline" size="sm" className="h-9 px-3 text-xs bg-card" onClick={handleToday}>
             Today
           </Button>
-          <Button variant="outline" size="icon" onClick={handleNextMonth}>
+          <Button variant="outline" size="icon" className="h-9 w-9 bg-card" onClick={handleNextMonth}>
             <ChevronRight className="h-4 w-4" />
           </Button>
+        </div>
+      </div>
+
+      {/* Filter Toolbar matching Screenshot 1 & 2 */}
+      <div className="bg-card/95 border border-border/80 rounded-2xl p-3 sm:px-4 sm:py-3.5 mb-6 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-4 text-xs">
+          <span className="font-medium text-foreground flex items-center gap-1.5 text-xs">
+            📅 Filter Bookings by Date:
+          </span>
+
+          <div className="flex items-center gap-2 bg-background border border-border/80 rounded-xl px-3 py-1.5 shadow-2xs">
+            <span className="text-muted-foreground font-medium text-xs">Start:</span>
+            <input
+              type="date"
+              value={startDateFilter}
+              onChange={(e) => handleStartDateChange(e.target.value)}
+              className="bg-transparent text-xs font-medium text-foreground focus:outline-none cursor-pointer"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 bg-background border border-border/80 rounded-xl px-3 py-1.5 shadow-2xs">
+            <span className="text-muted-foreground font-medium text-xs">End:</span>
+            <input
+              type="date"
+              value={endDateFilter}
+              onChange={(e) => handleEndDateChange(e.target.value)}
+              className="bg-transparent text-xs font-medium text-foreground focus:outline-none cursor-pointer"
+            />
+          </div>
+
+          {(startDateFilter || endDateFilter) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 text-xs text-muted-foreground hover:text-foreground px-2.5 rounded-lg"
+              onClick={() => {
+                setStartDateFilter("");
+                setEndDateFilter("");
+              }}
+            >
+              ✕ Clear
+            </Button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2.5 self-end md:self-auto">
+          <span className="bg-[#FFE5D9] text-[#DF301C] border border-[#FCD0C2] rounded-full px-3.5 py-1 font-semibold text-xs whitespace-nowrap">
+            {filteredRentals.length} Bookings
+          </span>
+          <button
+            type="button"
+            onClick={() => setViewBookingsOpen(true)}
+            className="bg-[#DF301C] hover:bg-[#B82210] text-white rounded-xl px-4 py-2 text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer whitespace-nowrap"
+          >
+            <Eye className="w-4 h-4" />
+            View Bookings ({filteredRentals.length})
+          </button>
         </div>
       </div>
 
@@ -433,69 +563,109 @@ export default function CalendarPage() {
           </div>
         </Card>
 
-        {/* Desktop/tablet: month grid */}
-        <Card className="glass-panel p-0 overflow-hidden hidden md:block">
-          <div className="grid grid-cols-7 border-b border-border">
-            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
-              <div
-                key={d}
-                className="px-3 py-3 text-[10px] uppercase tracking-[0.25em] text-muted-foreground"
-              >
-                {d}
-              </div>
-            ))}
-          </div>
-          <div className="grid grid-cols-7">
-            {cells.map((cell, i) => {
-              const events = cell ? (eventsByDate[cell.date] ?? []) : [];
-              const isToday = cell?.date === todayStr;
-              return (
-                <div
-                  key={i}
-                  className={`min-h-27.5 p-2 relative ${isToday ? "border-2 border-gold z-10 bg-gold/5" : "border-r border-b border-border"} ${
-                    events.length > 0 ? "cursor-pointer hover:bg-secondary/20 transition-colors" : ""
-                  }`}
-                  onClick={() => {
-                    if (events.length > 0 && cell) handleSelectDate(cell.date, events.length);
-                  }}
-                >
-                  {cell && (
-                    <>
-                      <div className="text-xs text-muted-foreground mb-1.5">
-                        {cell.day}
-                      </div>
-                      <div className="space-y-1">
-                        {events.slice(0, 2).map((e) => {
-                          const item = getItem(e.itemId);
-                          const colorClass =
-                            e.status === "overdue"
-                              ? "bg-destructive/20 text-destructive border-destructive/40"
-                              : e.status === "active"
-                                ? "bg-gold/15 text-gold border-gold/40"
-                                : "bg-emerald/15 text-emerald border-emerald/40";
-                          return (
-                            <div
-                              key={e.id}
-                              className={`text-[10px] truncate px-1.5 py-0.5 rounded-sm border ${colorClass}`}
-                              title={item ? `${item.id} - ${item.name}` : "Unknown"}
-                            >
-                              {item ? `${item.id} - ${item.name}` : "Unknown"}
+        {/* Desktop/tablet: stacked multi-month grids */}
+        <div className="space-y-6 hidden md:block">
+          {displayMonths.map(({ year, month, label }: { year: number; month: number; label: string }) => {
+            const monthCells = getMonthCells(year, month);
+            const monthEventCount = getMonthEventsCount(year, month);
+            return (
+              <Card key={`${year}-${month}`} className="glass-panel p-0 overflow-hidden border border-border">
+                <div className="bg-secondary/40 px-5 py-2.5 border-b border-border flex items-center justify-between">
+                  <h2 className="font-display text-base font-semibold tracking-wide text-foreground">
+                    {label}
+                  </h2>
+                  <span className="text-xs text-muted-foreground font-medium">
+                    {monthEventCount} booking{monthEventCount === 1 ? "" : "s"}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-7 border-b border-border bg-secondary/20">
+                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+                    <div
+                      key={d}
+                      className="px-3 py-2 text-[10px] uppercase tracking-[0.25em] text-muted-foreground font-semibold"
+                    >
+                      {d}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-7">
+                  {monthCells.map((cell, i) => {
+                    const events = cell ? (eventsByDate[cell.date] ?? []) : [];
+                    const isToday = cell?.date === todayStr;
+                    return (
+                      <div
+                        key={i}
+                        className={`min-h-24 p-2 relative ${
+                          isToday
+                            ? "border-2 border-gold z-10 bg-gold/5"
+                            : "border-r border-b border-border/70"
+                        } ${
+                          events.length > 0
+                            ? "cursor-pointer hover:bg-secondary/30 transition-colors"
+                            : ""
+                        }`}
+                        onClick={() => {
+                          if (events.length > 0 && cell)
+                            handleSelectDate(cell.date, events.length);
+                        }}
+                      >
+                        {cell && (
+                          <>
+                            <div className="text-xs text-muted-foreground font-medium mb-1">
+                              {cell.day}
                             </div>
-                          );
-                        })}
-                        {events.length > 2 && (
-                          <div className="text-[10px] text-muted-foreground">
-                            +{events.length - 2} more
-                          </div>
+                            <div className="space-y-1">
+                              {events.slice(0, 3).map((e) => {
+                                const item = getItem(e.itemId);
+                                const customer = getCustomer(e.customerId);
+                                const colorClass =
+                                  e.status === "overdue"
+                                    ? "bg-destructive/20 text-destructive border-destructive/40"
+                                    : e.status === "active"
+                                      ? "bg-gold/20 text-gold border-gold/40"
+                                      : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40";
+                                return (
+                                  <div
+                                    key={e.id}
+                                    className={`text-[10px] p-1 rounded-md border flex items-center gap-1.5 truncate ${colorClass}`}
+                                    title={`${item ? item.name : "Unknown"} - ${customer?.name || ""}`}
+                                  >
+                                    {item?.image ? (
+                                      <img
+                                        src={item.image}
+                                        alt=""
+                                        className="w-5 h-6 object-cover rounded shrink-0 border border-black/10"
+                                      />
+                                    ) : null}
+                                    <div className="truncate min-w-0 flex-1">
+                                      <p className="font-semibold leading-tight truncate">
+                                        {item ? `${item.name}` : e.itemId}
+                                      </p>
+                                      <p className="text-[9px] opacity-85 leading-tight truncate">
+                                        {customer?.name || e.billNo || e.id}
+                                      </p>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              {events.length > 3 && (
+                                <div className="text-[10px] font-semibold text-gold pl-0.5">
+                                  +{events.length - 3} more
+                                </div>
+                              )}
+                            </div>
+                          </>
                         )}
                       </div>
-                    </>
-                  )}
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
-        </Card>
+              </Card>
+            );
+          })}
+        </div>
 
         <Card className="glass-panel h-fit">
           <CardContent className="p-5">
@@ -512,31 +682,85 @@ export default function CalendarPage() {
                 const item = getItem(r.itemId);
                 const customer = getCustomer(r.customerId);
                 if (!item || !customer) return null;
+                const delDateStr = r.deliveryDate || r.startDate;
+                const delTimeStr = (r as any).deliveryTime;
+                const delPeriodStr = (r as any).deliveryTimePeriod;
+                const endTimeStr = (r as any).endTime;
+                const endPeriodStr = (r as any).endTimePeriod;
+                const isReady = (r as any).remarkCompleted;
+                const isDryclean = (r as any).drycleanCompleted;
+
                 return (
-                  <div key={r.id} className="flex items-start gap-3">
-                    <img
-                      src={item.image}
-                      alt={item.name}
-                      width={48}
-                      height={64}
-                      loading="lazy"
-                      className="h-16 w-12 object-cover rounded-sm border border-border"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="font-display text-sm leading-tight">
-                        {item.id} - {item.name}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                        {customer.name}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {r.startDate} to {r.endDate}
-                      </p>
-                      <div className="mt-1.5">
-                        <StatusBadge status={r.status} kind="rental" />
+                  <ViewInvoiceDialog
+                    key={r.id}
+                    rental={r}
+                    trigger={
+                      <div className="flex items-start gap-3 p-3 rounded-lg border border-border/60 bg-card hover:bg-secondary/40 cursor-pointer transition-colors group shadow-sm">
+                        <img
+                          src={item.image}
+                          alt={item.name}
+                          width={52}
+                          height={70}
+                          loading="lazy"
+                          className="h-20 w-14 object-cover rounded-md border border-border shrink-0"
+                        />
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="font-display text-sm font-semibold leading-tight truncate group-hover:text-gold transition-colors">
+                                {item.id} - {item.name}
+                              </p>
+                              {r.itemNo && (
+                                <p className="text-[10px] text-muted-foreground">Item No: {r.itemNo}</p>
+                              )}
+                            </div>
+                            <StatusBadge status={r.status} kind="rental" />
+                          </div>
+
+                          <p className="text-[11px] font-medium text-foreground truncate">
+                            Client: {customer.name} {customer.phone ? `(${customer.phone})` : ""}
+                          </p>
+
+                          <div className="text-[11px] space-y-0.5 border-t border-border/40 pt-1.5 mt-1">
+                            <p className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                              <span>📦 Delivery:</span>
+                              <span>{formatDate(delDateStr)}</span>
+                              {delTimeStr && <span>{delTimeStr}</span>}
+                              {delPeriodStr && <span className="text-[10px] opacity-80">({delPeriodStr})</span>}
+                            </p>
+                            <p className="text-muted-foreground flex items-center gap-1">
+                              <span>🔄 Return:</span>
+                              <span>{formatDate(r.endDate)}</span>
+                              {endTimeStr && <span>{endTimeStr}</span>}
+                              {endPeriodStr && <span className="text-[10px] opacity-80">({endPeriodStr})</span>}
+                            </p>
+                          </div>
+
+                          {(isReady || isDryclean) && (
+                            <div className="flex flex-wrap gap-1 pt-0.5">
+                              {isReady && (
+                                <span className="text-[9px] font-medium bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 px-1.5 py-0.5 rounded">
+                                  Fitting Ready
+                                </span>
+                              )}
+                              {isDryclean && (
+                                <span className="text-[9px] font-medium bg-indigo-500/10 text-indigo-600 border border-indigo-500/20 px-1.5 py-0.5 rounded">
+                                  Drycleaned
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between pt-1 border-t border-border/30">
+                            <span className="text-[10px] text-muted-foreground">Bill: #{r.billNo || r.id}</span>
+                            <span className="text-[10px] text-gold font-medium group-hover:underline">
+                              View Bill &rarr;
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
+                    }
+                  />
                 );
               })}
             </div>
@@ -544,154 +768,204 @@ export default function CalendarPage() {
         </Card>
       </div>
 
-      <Dialog open={!!selectedDate} onOpenChange={(open) => !open && setSelectedDate(null)}>
-        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 pr-6">
+      {/* Bookings Modal Dialog matching Screenshot 3 */}
+      <Dialog
+        open={viewBookingsOpen || !!selectedDate}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedDate(null);
+            setViewBookingsOpen(false);
+          }
+        }}
+      >
+        <DialogContent className="max-w-7xl w-[96vw] max-h-[92vh] flex flex-col p-5 sm:p-6 overflow-hidden bg-white border-slate-200 rounded-2xl shadow-2xl">
+          <DialogHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pr-6 shrink-0 pb-4 border-b border-slate-200">
             <div>
-              <DialogTitle className="font-display text-2xl">
-                Bookings on {selectedDate ? formatDate(selectedDate) : ""}
+              <DialogTitle className="font-serif text-2xl font-normal tracking-tight text-slate-900">
+                {selectedDate
+                  ? `Bookings on ${formatDate(selectedDate)}`
+                  : startDateFilter && endDateFilter
+                    ? `Bookings: ${formatDate(startDateFilter)} to ${formatDate(endDateFilter)}`
+                    : `Bookings (${filteredRentals.length})`}
               </DialogTitle>
-              <DialogDescription>
-                Detailed view of all scheduled bookings and remarks for this date.
+              <DialogDescription className="text-xs text-slate-500 mt-0.5">
+                Showing all {(selectedDate ? selectedEvents : filteredRentals).length} scheduled bookings active between selected dates.
               </DialogDescription>
             </div>
             <Button
-              onClick={handleExportExcel}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 shrink-0"
+              onClick={() =>
+                handleExportExcel(
+                  selectedDate ? selectedEvents : filteredRentals,
+                  selectedDate
+                    ? `Bookings_${selectedDate}`
+                    : startDateFilter && endDateFilter
+                      ? `Bookings_${startDateFilter}_to_${endDateFilter}`
+                      : "All_Bookings"
+                )
+              }
+              className="bg-[#00B7CD] hover:bg-[#009CB0] text-white gap-2 shrink-0 h-9 text-xs font-semibold rounded-lg shadow-sm"
             >
-              <Download className="w-4 h-4" /> Export to Excel
+              <FileSpreadsheet className="w-4 h-4" /> Export to Excel
             </Button>
           </DialogHeader>
-          <div className="overflow-x-auto rounded-md border border-border mt-4">
-            <Table className="text-sm">
-              <TableHeader className="bg-secondary/40">
-                <TableRow>
-                  <TableHead className="whitespace-nowrap">Bill No</TableHead>
-                  <TableHead className="whitespace-nowrap">Client</TableHead>
-                  <TableHead className="whitespace-nowrap">Piece / Item</TableHead>
-                  <TableHead className="whitespace-nowrap">Size / Color</TableHead>
-                  <TableHead className="whitespace-nowrap">Delivery</TableHead>
-                  <TableHead className="whitespace-nowrap">Status</TableHead>
-                  <TableHead className="min-w-48">Remark & Prep</TableHead>
+
+          <div className="flex-1 overflow-y-auto overflow-x-auto lg:overflow-x-hidden mt-4 rounded-xl border border-slate-200 bg-white shadow-xs">
+            <Table className="text-xs w-full border-collapse">
+              <TableHeader className="bg-slate-100/90 sticky top-0 z-10 border-b border-slate-200">
+                <TableRow className="border-slate-200 hover:bg-transparent">
+                  <TableHead className="w-20 font-semibold text-slate-600 px-3 py-2.5">Bill</TableHead>
+                  <TableHead className="min-w-[140px] font-semibold text-slate-600 px-3 py-2.5">Client</TableHead>
+                  <TableHead className="min-w-[180px] font-semibold text-slate-600 px-3 py-2.5">Piece / Item</TableHead>
+                  <TableHead className="min-w-[110px] font-semibold text-slate-600 px-3 py-2.5">Size / Color</TableHead>
+                  <TableHead className="min-w-[130px] font-semibold text-slate-600 px-3 py-2.5">Booking Dates</TableHead>
+                  <TableHead className="min-w-[100px] font-semibold text-slate-600 px-3 py-2.5">Delivery</TableHead>
+                  <TableHead className="min-w-[90px] font-semibold text-slate-600 px-3 py-2.5">Status</TableHead>
+                  <TableHead className="min-w-[200px] font-semibold text-slate-600 px-3 py-2.5">Remark & Prep</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {selectedEvents.map((e) => {
-                  const item = getItem(e.itemId);
-                  const customer = getCustomer(e.customerId);
-                  const deliveryStr = (e.deliveryDate || e.startDate || "").slice(0, 10);
-                  const daysToDelivery = Math.round((new Date(deliveryStr).getTime() - new Date(todayStr).getTime()) / 86400000);
-                  const needsAttention = e.status !== "returned" && !!e.remark && !(e as any).remarkCompleted && daysToDelivery <= 5;
-                  const isEmployeeReady = Boolean((e as any).remarkCompleted);
-                  const isAdminReconfirmed = Boolean((e as any).adminReconfirmed);
-                  const isDrycleanDone = Boolean((e as any).drycleanCompleted);
-                  const isDrycleanAdminConfirmed = Boolean((e as any).drycleanAdminConfirmed);
+                {(selectedDate ? selectedEvents : filteredRentals).length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-12 text-slate-500">
+                      No bookings found for the selected view.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  (selectedDate ? selectedEvents : filteredRentals).map((e, index) => {
+                    const item = getItem(e.itemId);
+                    const customer = getCustomer(e.customerId);
+                    const isEven = index % 2 === 0;
+                    const rowBg = isEven ? "bg-white" : "bg-slate-50/80";
 
-                  return (
-                    <TableRow key={e.id} className={needsAttention ? "bg-orange-500/5 hover:bg-orange-500/10" : "hover:bg-secondary/30"}>
-                      <TableCell className="font-medium whitespace-nowrap">{e.billNo || e.id}</TableCell>
-                      <TableCell className="whitespace-nowrap">
-                        <div className="font-semibold">{customer?.name || "Unknown"}</div>
-                        <div className="text-xs text-muted-foreground">{customer?.phone}</div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="font-medium">{item?.name || "Unknown"}</div>
-                        <div className="text-xs text-muted-foreground">{e.itemNo || e.itemId}</div>
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">
-                        <div className="text-sm font-medium">Size {item?.size || "-"}</div>
-                        <div className="text-[10px] text-muted-foreground">{item?.color || "-"}</div>
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap font-medium text-emerald-600 dark:text-emerald-500">
-                        {formatDate(e.deliveryDate || e.startDate)}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">
-                        <StatusBadge status={e.status} kind="rental" />
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-xs">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="whitespace-pre-wrap flex-1 min-w-0">{e.remark || "-"}</div>
-                          <div className="flex shrink-0 flex-col items-end gap-1.5">
-                            {isDrycleanDone ? (
-                              <Badge variant="outline" className="bg-indigo-500/10 text-indigo-500 border-indigo-500/20 font-medium tracking-wide text-[9px]">
-                                Dryclean: {(e as any).drycleanCompletedBy}
-                              </Badge>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-6 text-[10px] uppercase tracking-wider text-indigo-700 border-indigo-500/40 hover:bg-indigo-500/10"
-                                onClick={() => {
-                                  const currentName = localStorage.getItem("user_name") || "";
-                                  handleMarkDryclean(e.id, currentName);
-                                }}
+                    const isEmployeeReady = Boolean((e as any).remarkCompleted || (e as any).adminReconfirmed);
+                    const isDrycleanDone = Boolean((e as any).drycleanCompleted);
+
+                    return (
+                      <TableRow
+                        key={e.id}
+                        className={`${rowBg} hover:bg-slate-100/80 border-b border-slate-200/80 transition-colors`}
+                      >
+                        {/* Bill */}
+                        <TableCell className="font-bold text-[#1c1917] align-middle px-3 py-2.5">
+                          <ViewInvoiceDialog
+                            rental={e}
+                            trigger={
+                              <button
+                                type="button"
+                                className="font-bold text-[#1c1917] hover:text-[#d97736] hover:underline cursor-pointer whitespace-nowrap"
                               >
-                                Mark Dryclean Done
-                              </Button>
-                            )}
+                                {e.billNo || e.id}
+                              </button>
+                            }
+                          />
+                        </TableCell>
 
-                            {isDrycleanAdminConfirmed ? (
-                              <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 font-medium tracking-wide text-[9px]">
-                                Dryclean Confirmed: {(e as any).drycleanAdminConfirmedBy}
-                              </Badge>
-                            ) : (
-                              (role === "admin" || role === "reception") && isDrycleanDone && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-6 text-[10px] uppercase tracking-wider text-emerald-700 border-emerald-500/40 hover:bg-emerald-500/10"
-                                  onClick={() => {
-                                    const currentName = localStorage.getItem("user_name") || "";
-                                    handleAdminConfirmDryclean(e.id, currentName);
-                                  }}
-                                >
-                                  Confirm Dryclean
-                                </Button>
-                              )
-                            )}
-
-                            {isEmployeeReady ? (
-                              <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 font-medium tracking-wide text-[9px]">
-                                Ready: {(e as any).remarkConfirmedBy}
-                              </Badge>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-6 text-[10px] uppercase tracking-wider text-orange-600 border-orange-500/40 hover:bg-orange-500/10"
-                                onClick={() => {
-                                  const currentName = localStorage.getItem("user_name") || "";
-                                  handleMarkReady(e.id, currentName);
-                                }}
-                              >
-                                Mark Ready
-                              </Button>
-                            )}
-                            {isAdminReconfirmed ? (
-                              <Badge variant="outline" className="bg-blue-500/10 text-blue-500 border-blue-500/20 font-medium tracking-wide text-[9px]">
-                                Recheck is done by admin: {(e as any).adminReconfirmedBy}
-                              </Badge>
-                            ) : (
-                              (role === "admin" || role === "reception") && isEmployeeReady && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-6 text-[10px] uppercase tracking-wider text-blue-600 border-blue-500/40 hover:bg-blue-500/10"
-                                  onClick={() => {
-                                    const currentName = localStorage.getItem("user_name") || "";
-                                    handleAdminReconfirm(e.id, currentName);
-                                  }}
-                                >
-                                  Admin Check
-                                </Button>
-                              )
-                            )}
+                        {/* Client */}
+                        <TableCell className="align-middle px-3 py-2.5">
+                          <div className="font-bold text-[#1c1917] truncate max-w-[140px]">
+                            {customer?.name || "Unknown"}
                           </div>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                          <div className="text-[11px] text-[#78716c] font-mono whitespace-nowrap">{customer?.phone}</div>
+                        </TableCell>
+
+                        {/* Piece / Item */}
+                        <TableCell className="align-middle px-3 py-2.5">
+                          <div className="flex items-center gap-2">
+                            {item?.image ? (
+                              <img
+                                src={item.image}
+                                alt={item.name}
+                                className="h-10 w-8 object-cover rounded-md border border-[#e7e0d3] shrink-0 shadow-sm"
+                              />
+                            ) : (
+                              <div className="h-10 w-8 rounded-md bg-[#e7e0d3] shrink-0" />
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div className="font-bold text-[#1c1917] truncate max-w-[130px]">{item?.name || "Unknown"}</div>
+                              <div className="text-[10px] text-[#78716c] font-mono">{e.itemNo || e.itemId}</div>
+                            </div>
+                          </div>
+                        </TableCell>
+
+                        {/* Size / Color */}
+                        <TableCell className="whitespace-nowrap align-middle px-3 py-2.5">
+                          <div className="font-bold text-[#1c1917]">Size {item?.size || "XL"}</div>
+                          <div className="text-[11px] text-[#78716c] capitalize truncate max-w-[100px]">{item?.color || item?.name || "Standard"}</div>
+                        </TableCell>
+
+                        {/* Booking Dates */}
+                        <TableCell className="whitespace-nowrap align-middle text-[11px] px-3 py-2.5">
+                          <div className="text-[#78716c]">
+                            Start: <strong className="text-[#1c1917] font-bold">{formatDate(e.startDate)}</strong>
+                          </div>
+                          <div className="text-[#78716c]">
+                            End: <strong className="text-[#1c1917] font-bold">{formatDate(e.endDate)}</strong>
+                          </div>
+                        </TableCell>
+
+                        {/* Delivery */}
+                        <TableCell className="whitespace-nowrap align-middle text-[11px] px-3 py-2.5">
+                          <div className="font-bold text-[#1c1917]">{formatDate(e.deliveryDate || e.startDate)}</div>
+                          <div className="text-[#78716c] text-[10px]">{(e as any).deliveryTimePeriod || "Afternoon"}</div>
+                        </TableCell>
+
+                        {/* Status */}
+                        <TableCell className="whitespace-nowrap align-middle px-3 py-2.5">
+                          <span className="inline-block bg-[#e6f4ea] text-[#2d7d46] font-semibold px-2.5 py-0.5 text-[10px] uppercase tracking-wider rounded-full border border-[#b7e1cd]">
+                            {e.status || "UPCOMING"}
+                          </span>
+                        </TableCell>
+
+                        {/* Remark & Prep Buttons */}
+                        <TableCell className="text-xs align-middle px-3 py-2.5">
+                          <div className="flex flex-col gap-1 py-0.5">
+                            {e.remark && (
+                              <div className="bg-white/80 border border-[#e7e0d3] rounded-md text-[10px] px-2 py-0.5 text-[#78716c] truncate max-w-[200px]">
+                                {e.remark}
+                              </div>
+                            )}
+
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {isDrycleanDone ? (
+                                <span className="bg-[#f3e8ff] text-[#9333ea] border border-[#d8b4fe] text-[9px] font-bold tracking-wider rounded-full px-2.5 py-0.5 whitespace-nowrap">
+                                  DRYCLEAN DONE
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="border border-[#c084fc] text-[#9333ea] hover:bg-[#faf5ff] text-[9px] font-bold tracking-wider rounded-full px-2.5 py-0.5 uppercase transition-all cursor-pointer whitespace-nowrap"
+                                  onClick={() => {
+                                    const currentName = localStorage.getItem("user_name") || "";
+                                    handleMarkDryclean(e.id, currentName);
+                                  }}
+                                >
+                                  MARK DRYCLEAN DONE
+                                </button>
+                              )}
+
+                              {isEmployeeReady ? (
+                                <span className="bg-[#ecfdf5] text-[#059669] border border-[#a7f3d0] text-[9px] font-bold tracking-wider rounded-full px-2.5 py-0.5 whitespace-nowrap">
+                                  READY
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="border border-[#fb923c] text-[#ea580c] hover:bg-[#fff7ed] text-[9px] font-bold tracking-wider rounded-full px-2.5 py-0.5 uppercase transition-all cursor-pointer whitespace-nowrap"
+                                  onClick={() => {
+                                    const currentName = localStorage.getItem("user_name") || "";
+                                    handleMarkReady(e.id, currentName);
+                                  }}
+                                >
+                                  MARK READY
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
               </TableBody>
             </Table>
           </div>

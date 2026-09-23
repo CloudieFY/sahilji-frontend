@@ -24,28 +24,49 @@ export function formatDate(dateStr: string) {
  */
 export function printInvoiceHtml(invoiceHtml: string): boolean {
   if (typeof window === "undefined") return false;
-  const printWindow = window.open("", "_blank", "width=800,height=900");
-  if (!printWindow) return false;
 
-  printWindow.document.write(invoiceHtml);
-  printWindow.document.close();
-  printWindow.focus();
+  // Use a hidden iframe so printing triggers directly on top of the current screen without opening a new window/tab
+  let iframe = document.getElementById("print-invoice-iframe") as HTMLIFrameElement | null;
+  if (iframe) {
+    iframe.remove();
+  }
+
+  iframe = document.createElement("iframe");
+  iframe.id = "print-invoice-iframe";
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  iframe.style.visibility = "hidden";
+  document.body.appendChild(iframe);
+
+  const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+  if (!iframeDoc) return false;
+
+  iframeDoc.open();
+  iframeDoc.write(invoiceHtml);
+  iframeDoc.close();
+
+  const iframeWin = iframe.contentWindow;
+  if (!iframeWin) return false;
 
   let printed = false;
   const triggerPrint = () => {
     if (printed) return;
     printed = true;
     try {
-      printWindow.focus();
-      printWindow.print();
-    } catch {
-      // Window may have already been closed by the user.
+      iframeWin.focus();
+      iframeWin.print();
+    } catch (e) {
+      console.error("Print error:", e);
     }
   };
 
-  const pendingImages = Array.from(printWindow.document.images).filter((img) => !img.complete);
+  const pendingImages = Array.from(iframeDoc.images).filter((img) => !img.complete);
   if (pendingImages.length === 0) {
-    setTimeout(triggerPrint, 50);
+    setTimeout(triggerPrint, 100);
   } else {
     let remaining = pendingImages.length;
     const onSettle = () => {

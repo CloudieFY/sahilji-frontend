@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import heroImg from "@/assets/hero-velvet.jpg";
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/" as any)({
   head: () => ({
     meta: [
       { title: "Dashboard - Velvet Vault" },
@@ -78,8 +78,10 @@ function DashboardPage() {
 
   let todayIncome = 0;
   let todayDue = 0;
+  let todayBookingsCount = 0;
   let monthIncome = 0;
   let monthDue = 0;
+  let monthBookingsCount = 0;
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const now = new Date();
@@ -87,30 +89,38 @@ function DashboardPage() {
   const currentYear = now.getFullYear();
 
   rentals.forEach((r) => {
-    const rDateObj = new Date(r.startDate || r.createdAt || "");
-    if (isNaN(rDateObj.getTime())) return;
-
-    const rDateStr = rDateObj.toISOString().slice(0, 10);
-    const isToday = rDateStr === todayStr;
-    const isThisMonth = rDateObj.getMonth() === currentMonth && rDateObj.getFullYear() === currentYear;
+    const createdDateStr = (r.createdAt || r.startDate || "").slice(0, 10);
+    const createdDateObj = new Date(r.createdAt || r.startDate || "");
 
     const income = r.advance || 0;
     const due = Math.max(0, (r.total || 0) + (r.penalty || 0) - (r.advance || 0));
 
-    if (isToday) {
+    if (createdDateStr === todayStr) {
+      todayBookingsCount++;
       todayIncome += income;
       todayDue += due;
     }
-    if (isThisMonth) {
-      monthIncome += income;
-      monthDue += due;
+
+    if (!isNaN(createdDateObj.getTime())) {
+      if (createdDateObj.getMonth() === currentMonth && createdDateObj.getFullYear() === currentYear) {
+        monthBookingsCount++;
+        monthIncome += income;
+        monthDue += due;
+      }
     }
   });
 
   const activeRentals = rentals.filter((r) => r.status === "active").length;
+  const upcomingRentals = rentals.filter((r) => r.status === "upcoming").length;
   const availableItems = items.filter((i) => i.status === "available").length;
 
   const stats = [
+    {
+      label: "Today's Bookings",
+      value: `${todayBookingsCount}`,
+      helper: "Bills created today",
+      icon: CalendarCheck,
+    },
     {
       label: "Today's Income",
       value: formatCurrencyINR(todayIncome),
@@ -122,6 +132,12 @@ function DashboardPage() {
       value: formatCurrencyINR(todayDue),
       helper: "Pending from today's bookings",
       icon: Clock,
+    },
+    {
+      label: "Monthly Bookings",
+      value: `${monthBookingsCount}`,
+      helper: "Bills created this month",
+      icon: CalendarCheck,
     },
     {
       label: "Monthly Income",
@@ -138,7 +154,7 @@ function DashboardPage() {
     {
       label: "Live Rentals",
       value: `${activeRentals}`,
-      helper: `${rentals.filter((r) => r.status === "upcoming").length} upcoming`,
+      helper: `${upcomingRentals} upcoming`,
       icon: Package,
     },
     {
@@ -206,7 +222,6 @@ function DashboardPage() {
   const returnsDueToday = rentals.filter(
     (r) => r.status === "active" && (r.endDate || "").slice(0, 10) === todayStr
   ).length;
-  const upcomingRentals = rentals.filter((r) => r.status === "upcoming").length;
   const itemsInCleaning = items.filter((i) => i.status === "cleaning").length;
 
   return (

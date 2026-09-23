@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Package, CheckCircle, Calendar, ArrowDownLeft, Search } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/StatusBadge";
+import { ViewInvoiceDialog } from "@/components/forms/ViewInvoiceDialog";
 import {
   Select,
   SelectContent,
@@ -263,7 +264,19 @@ export function DeliveriesPage() {
               return (
                   <tr key={rental.id} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                     <td className="p-4 align-middle font-medium">
-                      <div>{rental.billNo || rental.id}</div>
+                      <div>
+                        <ViewInvoiceDialog
+                          rental={rental}
+                          trigger={
+                            <button
+                              type="button"
+                              className="font-medium text-gold hover:underline cursor-pointer"
+                            >
+                              {rental.billNo || rental.id}
+                            </button>
+                          }
+                        />
+                      </div>
                       {canSeeFinancials && (
                         <div className="mt-1.5 flex flex-col gap-0.5">
                           <div className={`text-xs ${dueAmount > 0 ? "text-destructive font-medium" : "text-muted-foreground font-normal"}`}>
