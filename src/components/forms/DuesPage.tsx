@@ -23,13 +23,14 @@ export function DuesPage() {
   const duesList = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
-    const billAggregates: Record<string, { totalWithPenalty: number, advance: number }> = {};
+    const billAggregates: Record<string, { totalWithPenalty: number; advance: number; paid: number }> = {};
     rentals.forEach(r => {
+      const billNo = r.billNo || r.id;
       const item = items.find((i) => i.id === r.itemId);
       const subtotal = (r as any).rate ?? (item ? item.pricePerDay * daysBetween(r.startDate, r.endDate) : 0);
       const discount = r.discount || 0;
-      const advance = r.advance || 0;
       const security = r.securityAmount || 0;
+      const payments = (r.payments || []).reduce((sum: number, p: { amount: number }) => sum + (Number(p.amount) || 0), 0);
       
       const dynamicPenalty = (() => {
         if (r.status !== "overdue") return r.penalty || 0;
@@ -46,30 +47,30 @@ export function DuesPage() {
       const totalAfterDiscount = Math.max(0, subtotal - discount);
       const totalWithPenalty = totalAfterDiscount + security + dynamicPenalty;
       
-      if (r.billNo) {
-        if (!billAggregates[r.billNo]) billAggregates[r.billNo] = { totalWithPenalty: 0, advance: 0 };
-        billAggregates[r.billNo].totalWithPenalty += totalWithPenalty;
-        billAggregates[r.billNo].advance += advance;
-      }
+      if (!billAggregates[billNo]) billAggregates[billNo] = { totalWithPenalty: 0, advance: 0, paid: 0 };
+      billAggregates[billNo].totalWithPenalty += totalWithPenalty;
+      billAggregates[billNo].paid += payments;
     });
 
     const list = rentals
       .map((rental) => {
+        const billNo = rental.billNo || rental.id;
         const item = items.find((i) => i.id === rental.itemId);
         const customer = customers.find((c) => c.id === rental.customerId);
         
         let totalWithPenalty = 0;
         let finalDue = 0;
+        const agg = billAggregates[billNo];
 
         if (rental.billNo && billAggregates[rental.billNo]) {
           const agg = billAggregates[rental.billNo];
           totalWithPenalty = agg.totalWithPenalty;
-          finalDue = Math.max(0, agg.totalWithPenalty - agg.advance);
+          finalDue = Math.max(0, agg.totalWithPenalty - agg.paid);
         } else {
           const subtotal = (rental as any).rate ?? (item ? item.pricePerDay * daysBetween(rental.startDate, rental.endDate) : 0);
           const discount = rental.discount || 0;
           const advance = rental.advance || 0;
-          const security = rental.securityAmount || 0;
+          const security = rental.securityAmount || 0; 
 
           const dynamicPenalty = (() => {
             if (rental.status !== "overdue") return rental.penalty || 0;
@@ -85,9 +86,8 @@ export function DuesPage() {
 
           const totalAfterDiscount = Math.max(0, subtotal - discount);
           totalWithPenalty = totalAfterDiscount + security + dynamicPenalty;
-          finalDue = Math.max(0, totalWithPenalty - advance);
+          finalDue = Math.max(0, totalWithPenalty - (agg?.paid || advance));
         }
-
 
         return {
           ...rental,

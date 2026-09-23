@@ -20,19 +20,20 @@ function today() {
 function getDueAmount(rental: any, allRentals: any[] = []) {
   if (rental.billNo && allRentals.length > 0) {
     const relatedRentals = allRentals.filter((r) => r.billNo === rental.billNo);
-    let aggTotal = 0;
-    let aggAdvance = 0;
+    let aggPiecesTotal = 0;
+    let aggSecurity = 0;
+    let aggPaid = 0;
     for (const r of relatedRentals) {
-      const subtotal = (Number((r as any).rate) || 0) * (Number((r as any).quantity) || 1);
-      const security = (r as any).securityReturned ? 0 : (Number(r.securityAmount) || 0);
-      aggTotal += subtotal + security + (Number(r.penalty) || 0) - (Number(r.discount) || 0);
-      aggAdvance += Number(r.advance) || 0;
+      aggPiecesTotal += Number(r.total) || 0;
+      aggSecurity += Number(r.securityAmount) || 0;
+      aggPaid += (r.payments || []).reduce((sum: number, p: { amount: number }) => sum + (Number(p.amount) || 0), 0);
     }
-    return Math.max(0, aggTotal - aggAdvance);
+    const finalBillAmount = aggPiecesTotal + aggSecurity;
+    return Math.max(0, finalBillAmount - aggPaid);
   }
-  const security = (rental as any).securityReturned ? 0 : (Number(rental.securityAmount) || 0);
-  const subtotal = (Number((rental as any).rate) || 0) * (Number((rental as any).quantity) || 1);
-  return Math.max(0, subtotal + security + (Number(rental.penalty) || 0) - (Number(rental.discount) || 0) - (Number(rental.advance) || 0));
+  const paidAmount = (rental.payments || []).reduce((sum: number, p: { amount: number }) => sum + (Number(p.amount) || 0), 0);
+  const finalBillAmount = (Number(rental.total) || 0) + (Number(rental.securityAmount) || 0);
+  return Math.max(0, finalBillAmount - paidAmount);
 }
 
 export function ReturnItemsPage() {

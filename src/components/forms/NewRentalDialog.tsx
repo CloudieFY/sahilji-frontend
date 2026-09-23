@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { z } from "zod";
 import { toast } from "sonner";
 import {
@@ -28,7 +28,7 @@ import type { RentalStatus } from "@/data/mock";
 import { AddCustomerDialog } from "./AddCustomerDialog";
 import { AddPieceDialog } from "./AddPieceDialog";
 import { Plus, Trash2, Calendar } from "lucide-react";
-import { getInvoiceContent, formatDate } from "@/lib/invoiceTemplate";
+import { getInvoiceContent, formatDate, printInvoiceHtml } from "@/lib/invoiceTemplate";
 
 const schema = z
   .object({
@@ -36,7 +36,7 @@ const schema = z
 
     address: z.string().trim().min(1, "Address required").max(200),
     customerId: z.string().min(1, "Select a client"),
-    advance: z.number().min(0, "Advance cannot be negative"),
+    payments: z.array(z.object({ amount: z.number(), date: z.string() })).optional(),
     discount: z.number().min(0, "Discount cannot be negative"),
     securityAmount: z.number().min(0, "Security amount cannot be negative"),
     signature: z.string().optional(),
@@ -60,6 +60,8 @@ const schema = z
     ).min(1, "Add at least one piece"),
   })
 
+type FormState = z.infer<typeof schema>;
+
 function daysBetween(start: string, end: string) {
   if (!start || !end) return 0;
   const s = new Date(start).getTime();
@@ -75,7 +77,9 @@ function isSafaItem(item: any) {
   return text.includes("safa");
 }
 
-function getTimePeriod(timeStr: string) {
+function getTimePeriod(
+  timeStr: string,
+): "" | "Morning" | "Afternoon" | "Evening" | "Night" {
   if (!timeStr) return "";
   const hour = parseInt(timeStr.split(":")[0], 10);
   if (isNaN(hour)) return "";
@@ -99,13 +103,13 @@ export function NewRentalDialog({
   const isControlled = open !== undefined;
   const isOpen = isControlled ? open : internalOpen;
   const setOpen = isControlled ? onOpenChange! : setInternalOpen;
-
-  const [form, setForm] = useState({
+  
+  const [form, setForm] = useState<FormState>({
     billNo: "",
 
     address: "",
     customerId: "",
-    advance: 0,
+    payments: [], // This will be sent as an empty array now
     discount: 0,
     securityAmount: 0,
     signature: "",
@@ -142,8 +146,9 @@ export function NewRentalDialog({
     const quantity = isSafaItem(item) ? Math.max(1, Number((p as any).quantity) || 1) : 1;
     return acc + (p.rate || 0) * quantity;
   }, 0);
-  const netTotal = piecesTotal - form.discount + form.securityAmount;
-  const balanceDue = Math.max(0, netTotal - form.advance);
+  const totalPaid = (form.payments || []).reduce((acc, p) => acc + p.amount, 0);
+  const netTotal = piecesTotal - (form.discount || 0) + (form.securityAmount || 0);
+  const balanceDue = Math.max(0, netTotal - totalPaid);
 
   const [loading, setLoading] = useState(false);
   const [billNoLoading, setBillNoLoading] = useState(false);
@@ -277,15 +282,9 @@ export function NewRentalDialog({
       </html>
     `;
 
-    const printWindow = window.open("", "_blank", "width=800,height=900");
-    if (!printWindow) {
+    if (!printInvoiceHtml(invoiceHtml)) {
       toast.error("Unable to open print window.");
-      return;
     }
-    printWindow.document.write(invoiceHtml);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -303,6 +302,15 @@ export function NewRentalDialog({
       return;
     }
 
+    const itemIds = new Set();
+    for (const piece of parsed.data.pieces) {
+      if (itemIds.has(piece.itemId)) {
+        toast.error(`Duplicate item found: ${items.find(i => i.id === piece.itemId)?.name}. Each piece must be unique.`);
+        return;
+      }
+      itemIds.add(piece.itemId);
+    }
+
     const piecesData = parsed.data.pieces.map((p) => {
       const item = items.find((i) => i.id === p.itemId);
       const quantity = isSafaItem(item) ? p.quantity : 1;
@@ -316,7 +324,7 @@ export function NewRentalDialog({
     }
 
     const confirmedPayment = window.confirm(
-      `Confirm amount submitted by customer:\n\nTotal Rent: ${formatCurrencyINR(piecesTotal)}\nDiscount: ${formatCurrencyINR(parsed.data.discount)}\nSecurity deposit: ${formatCurrencyINR(parsed.data.securityAmount)}\nTotal bill: ${formatCurrencyINR(netTotal)}\nAmount paid: ${formatCurrencyINR(parsed.data.advance)}\nBalance: ${formatCurrencyINR(balanceDue)}`,
+      `Confirm amount submitted by customer:\n\nTotal Rent: ${formatCurrencyINR(piecesTotal)}\nDiscount: ${formatCurrencyINR(parsed.data.discount)}\nSecurity deposit: ${formatCurrencyINR(parsed.data.securityAmount)}\nTotal bill: ${formatCurrencyINR(netTotal)}\nAmount paid: ${formatCurrencyINR(totalPaid)}\nBalance: ${formatCurrencyINR(balanceDue)}`,
     );
     if (!confirmedPayment) return;
 
@@ -364,11 +372,13 @@ export function NewRentalDialog({
         customerId: parsed.data.customerId,
         billNo: parsed.data.billNo,
         address: parsed.data.address,
-        advance: parsed.data.advance,
+        payments: parsed.data.payments,
+        // 'advance' is deprecated in favor of the payments array, but we can send it for compatibility.
+        advance: totalPaid,
         discount: parsed.data.discount,
         securityAmount: parsed.data.securityAmount,
         signature: parsed.data.signature || "",
-        status: "upcoming",
+        status: parsed.data.status,
         pieces: piecesData.map((p) => {
           const ratio = ratioBase > 0 ? (p.lineTotal || 0) / ratioBase : 1 / piecesData.length;
           return {
@@ -396,7 +406,7 @@ export function NewRentalDialog({
         billNo: "",
         address: "",
         customerId: "",
-        advance: 0,
+        payments: [],
         discount: 0,
         securityAmount: 0,
         signature: "",
@@ -467,8 +477,11 @@ export function NewRentalDialog({
                       }
                       if (v === "active" && form.status !== "active") {
                         const confirmed = window.confirm("Is all amount paid?");
-                        if (confirmed) {
-                          setForm({ ...form, status: v, advance: netTotal });
+                        if (confirmed && netTotal > 0) {
+                          setForm({ ...form, status: v, payments: [{
+                            amount: netTotal,
+                            date: today()
+                          }] });
                           toast.success("Balance cleared for delivery");
                           return;
                         }
@@ -566,6 +579,10 @@ export function NewRentalDialog({
                       <Select
                         value={piece.itemId}
                         onValueChange={(v) => {
+                          if (form.pieces.some(p => p.itemId === v && p.id !== piece.id)) {
+                            toast.error("This item is already added to the bill.");
+                            return;
+                          }
                           const item = items.find((i) => i.id === v);
                           setForm(f => {
                             const newPieces = [...f.pieces];
@@ -660,7 +677,7 @@ export function NewRentalDialog({
                               value={piece.deliveryDate}
                               onChange={(e) => setForm(f => {
                                 const newPieces = [...f.pieces];
-                                newPieces[index] = { ...newPieces[index], deliveryDate: e.target.value };
+newPieces[index] = { ...newPieces[index], deliveryDate: e.target.value };
                                 return { ...f, pieces: newPieces };
                               })}
                               onClick={(e) => {
@@ -681,8 +698,12 @@ export function NewRentalDialog({
                               value={piece.deliveryTime || ""}
                               onChange={(e) => setForm(f => {
                                 const time = e.target.value;
-                                const newPieces = [...f.pieces];
-                                newPieces[index] = { ...newPieces[index], deliveryTime: time, deliveryTimePeriod: getTimePeriod(time) };
+const newPieces = [...f.pieces];
+                                newPieces[index] = {
+                                  ...newPieces[index],
+                                  deliveryTime: time,
+                                  deliveryTimePeriod: getTimePeriod(time) as FormState['pieces'][0]['deliveryTimePeriod'],
+                                };
                                 return { ...f, pieces: newPieces };
                               })}
                               required
@@ -692,11 +713,14 @@ export function NewRentalDialog({
                             <Label className="text-xs text-muted-foreground">Period</Label>
                             <Select
                               value={piece.deliveryTimePeriod}
-                              onValueChange={(v) => setForm(f => {
-                                const newPieces = [...f.pieces];
-                                newPieces[index] = { ...newPieces[index], deliveryTimePeriod: v };
-                                return { ...f, pieces: newPieces };
-                              })}
+                              onValueChange={(value) => {
+                                const v = value as FormState['pieces'][0]['deliveryTimePeriod'];
+                                setForm((f) => {
+                                  const newPieces = [...f.pieces];
+                                  newPieces[index] = { ...newPieces[index], deliveryTimePeriod: v };
+                                  return { ...f, pieces: newPieces };
+                                });
+                              }}
                             >
                               <SelectTrigger>
                                 <SelectValue placeholder="Period" />
@@ -745,8 +769,12 @@ export function NewRentalDialog({
                               value={piece.endTime || ""}
                               onChange={(e) => setForm(f => {
                                 const time = e.target.value;
-                                const newPieces = [...f.pieces];
-                                newPieces[index] = { ...newPieces[index], endTime: time, endTimePeriod: getTimePeriod(time) };
+const newPieces = [...f.pieces];
+                                newPieces[index] = {
+                                  ...newPieces[index],
+                                  endTime: time,
+                                  endTimePeriod: getTimePeriod(time) as FormState['pieces'][0]['endTimePeriod'],
+                                };
                                 return { ...f, pieces: newPieces };
                               })}
                               required
@@ -756,11 +784,14 @@ export function NewRentalDialog({
                             <Label className="text-xs text-muted-foreground">Period</Label>
                             <Select
                               value={piece.endTimePeriod}
-                              onValueChange={(v) => setForm(f => {
-                                const newPieces = [...f.pieces];
-                                newPieces[index] = { ...newPieces[index], endTimePeriod: v };
-                                return { ...f, pieces: newPieces };
-                              })}
+                              onValueChange={(value) => {
+                                const v = value as FormState['pieces'][0]['endTimePeriod'];
+                                setForm((f) => {
+                                  const newPieces = [...f.pieces];
+                                  newPieces[index] = { ...newPieces[index], endTimePeriod: v };
+                                  return { ...f, pieces: newPieces };
+                                });
+                              }}
                             >
                               <SelectTrigger>
                                 <SelectValue placeholder="Period" />
@@ -829,24 +860,16 @@ export function NewRentalDialog({
               <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border pb-2">Payment & Signature</h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="advance">Amount Paid</Label>
+                  <Label htmlFor="amountPaid">Amount Paid</Label>
                   <Input
-                    id="advance"
+                    id="amountPaid"
                     type="number"
                     min={0}
-                    value={form.advance}
-                    onChange={(e) => setForm({ ...form, advance: Number(e.target.value) })}
-                    placeholder="0"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="discount">Discount</Label>
-                  <Input
-                    id="discount"
-                    type="number"
-                    min={0}
-                    value={form.discount}
-                    onChange={(e) => setForm({ ...form, discount: Number(e.target.value) })}
+                    value={(form.payments && form.payments[0]?.amount) || ""}
+                    onChange={(e) => {
+                      const amount = Number(e.target.value);
+                      setForm({ ...form, payments: amount > 0 ? [{ amount, date: today() }] : [] });
+                    }}
                     placeholder="0"
                   />
                 </div>
@@ -858,6 +881,17 @@ export function NewRentalDialog({
                     min={0}
                     value={form.securityAmount}
                     onChange={(e) => setForm({ ...form, securityAmount: Number(e.target.value) })}
+                    placeholder="0"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="discount">Discount</Label>
+                  <Input
+                    id="discount"
+                    type="number"
+                    min={0}
+                    value={form.discount}
+                    onChange={(e) => setForm({ ...form, discount: Number(e.target.value) })}
                     placeholder="0"
                   />
                 </div>
@@ -930,10 +964,10 @@ export function NewRentalDialog({
                   </div>
                   <div className="grid gap-1 text-sm">
                     <div className="flex justify-between text-muted-foreground"><span>Total Rent</span><span>{formatCurrencyINR(piecesTotal)}</span></div>
-                    <div className="flex justify-between text-muted-foreground"><span>Discount</span><span>-{formatCurrencyINR(form.discount)}</span></div>
                     <div className="flex justify-between text-muted-foreground"><span>Security Deposit</span><span>{formatCurrencyINR(form.securityAmount)}</span></div>
-                    <div className="flex justify-between text-muted-foreground"><span>Total Bill</span><span>{formatCurrencyINR(netTotal)}</span></div>
-                    <div className="flex justify-between text-muted-foreground"><span>Amount Paid</span><span>{formatCurrencyINR(form.advance)}</span></div>
+                    <div className="flex justify-between text-muted-foreground"><span>Discount</span><span>-{formatCurrencyINR(form.discount)}</span></div>
+                    <div className="flex justify-between font-medium text-foreground"><span>Total Bill</span><span>{formatCurrencyINR(netTotal)}</span></div>
+                    <div className="flex justify-between text-emerald-600"><span>Amount Paid</span><span>-{formatCurrencyINR(totalPaid)}</span></div>
                     <div className="flex justify-between text-gold font-semibold"><span>Balance</span><span>{formatCurrencyINR(balanceDue)}</span></div>
                   </div>
                 </div>
@@ -955,9 +989,9 @@ export function NewRentalDialog({
                 </div>
                 <div className="text-[11px] text-muted-foreground mt-1 space-y-0.5">
                   <p>Total Rent: {formatCurrencyINR(piecesTotal)}</p>
-                  {form.discount > 0 ? <p>Discount: -{formatCurrencyINR(form.discount)}</p> : null}
                   {form.securityAmount > 0 ? <p>Security Deposit: {formatCurrencyINR(form.securityAmount)}</p> : null}
-                  {form.advance > 0 ? <p>Amount Paid: -{formatCurrencyINR(form.advance)}</p> : null}
+                  {form.discount > 0 ? <p>Discount: -{formatCurrencyINR(form.discount)}</p> : null}
+                  {totalPaid > 0 ? <p>Amount Paid: -{formatCurrencyINR(totalPaid)}</p> : null}
                 </div>
               </div>
               <div className="flex gap-2">

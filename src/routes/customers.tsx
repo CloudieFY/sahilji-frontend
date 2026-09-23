@@ -141,15 +141,7 @@ export default function CustomersPage() {
         {filteredCustomers.map((c) => (
               <Card
                 key={c.id}
-                className="glass-panel transition-shadow cursor-pointer"
-                role="button"
-                tabIndex={0}
-                onClick={() => navigate({ to: "/customers/$customerId", params: { customerId: c.id } })}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    navigate({ to: "/customers/$customerId", params: { customerId: c.id } });
-                  }
-                }}
+                className="glass-panel transition-shadow"
               >
             <CardContent className="p-6 relative">
               <div className="flex items-start gap-4">

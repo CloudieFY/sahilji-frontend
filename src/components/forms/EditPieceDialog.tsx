@@ -51,6 +51,7 @@ const SUBCATEGORY_BY_CATEGORY = {
   ]
 };
 
+
 const schema = z.object({
   customId: z.string().trim().min(1, "Required").max(40),
   name: z.string().trim().min(1, "Required").max(80),

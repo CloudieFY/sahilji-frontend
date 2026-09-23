@@ -52,18 +52,24 @@ function getBillDueAmount(rentalsList: any[], allRentals: any[] = []) {
     ? allRentals.filter((r) => r.billNo === rentalsList[0].billNo)
     : rentalsList;
 
-  let aggTotal = 0;
-  let aggAdvance = 0;
+  // Sum the total for each piece (which includes discounts and penalties).
+  // Security and payments are bill-level.
+  let aggPiecesTotal = 0;
+  let aggSecurity = 0;
+  let aggDiscount = 0;
+  let aggPaid = 0;
+
   for (const r of relatedRentals) {
-    // Recalculate total from rate and quantity for accuracy, as 'total' might be stale.
-    const subtotal = (Number((r as any).rate) || 0) * (Number((r as any).quantity) || 1);
-    const security = (r as any).securityReturned ? 0 : (Number(r.securityAmount) || 0);
-    aggTotal += subtotal + security + (Number(r.penalty) || 0) - (Number(r.discount) || 0);
-    aggAdvance += Number(r.advance) || 0;
+    aggPiecesTotal += Number((r as any).total) || 0;
+    aggSecurity += Number((r as any).securityAmount) || 0;
+    aggDiscount += Number((r as any).discount) || 0;
+    aggPaid += (r.payments || []).reduce((sum: number, p: { amount: number }) => sum + (Number(p.amount) || 0), 0);
   }
-  // Note: 'total' on the rental object itself is not used here to ensure we have the live calculated value.
-  return Math.max(0, aggTotal - aggAdvance);
+
+  const finalBillAmount = aggPiecesTotal + aggSecurity - aggDiscount;
+  return Math.max(0, finalBillAmount - aggPaid);
 }
+
 
 export default function RentalsPage() {
 
@@ -136,13 +142,6 @@ export default function RentalsPage() {
     }, new Map<string, { key: string; rentals: typeof rentals; representative: (typeof rentals)[number] }>()).values(),
   );
 
-  const totals = {
-    active: groupedBills.filter((bill) => bill.representative.status === "active").length,
-    upcoming: groupedBills.filter((bill) => bill.representative.status === "upcoming").length,
-    overdue: groupedBills.filter((bill) => bill.representative.status === "overdue").length,
-    returned: groupedBills.filter((bill) => bill.representative.status === "returned").length,
-  };
-
   const getUniqueBillBalances = (billsList: typeof groupedBills) => {
     return billsList.reduce((total, bill) => total + getBillDueAmount(bill.rentals, rentals), 0);
   };
@@ -209,18 +208,7 @@ export default function RentalsPage() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
-        {(["active", "upcoming", "overdue", "returned"] as const).map((k) => (
-          <Card key={k} className="glass-panel p-4 sm:p-5">
-            <p className="text-[9px] sm:text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
-              {k}
-            </p>
-            <p className="font-display text-2xl sm:text-3xl mt-2">{totals[k]}</p>
-          </Card>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 mb-6 sm:mb-8">
-        {(["active", "upcoming", "overdue", "returned"] as const).map((k) => (
+        {(["active", "upcoming", "returned"] as const).map((k) => (
           <Card key={`balance-${k}`} className="glass-panel p-4 sm:p-5 border-gold/20">
             <p className="text-[9px] sm:text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
               {k} Balance
@@ -230,7 +218,7 @@ export default function RentalsPage() {
             </p>
           </Card>
         ))}
-        <Card className="glass-panel p-4 sm:p-5 border border-gold/30 bg-gold/5">
+        <Card className="glass-panel p-4 sm:p-5 border border-gold/30 bg-gold/5 col-span-2 lg:col-span-1">
           <p className="text-[9px] sm:text-[10px] uppercase tracking-[0.25em] text-gold font-semibold">
             Total Balance
           </p>
@@ -301,7 +289,7 @@ export default function RentalsPage() {
                       {formatCurrencyINR(bill.rentals.reduce((sum, entry) => sum + (Number(entry.total) || 0), 0))}
                     </p>
                   </div>
-                  <div className="mt-2 flex items-center justify-between gap-3 text-xs">
+                  <div className="mt-2 flex items-baseline justify-between gap-3 text-xs">
                     <span className="text-muted-foreground">Due Amount</span>
                     <span className={dueAmount > 0 ? "font-semibold text-destructive" : "font-semibold text-emerald-500"}>
                       {formatCurrencyINR(dueAmount)}
