@@ -189,7 +189,21 @@ async function apiRequest<T>(url: string, options?: RequestInit): Promise<T> {
 
 // Items API
 export const itemsApi = {
-  getAll: () => apiRequest<Item[]>(`${API_BASE}/items`),
+  getAll: async () => {
+    const [items, imageMap] = await Promise.all([
+      apiRequest<Item[]>(`${API_BASE}/items`),
+      apiRequest<Array<{ customId: string; image: string }>>(`${API_BASE}/items/images`),
+    ]);
+
+    const imagesByCustomId = new Map(
+      imageMap.map((entry) => [String(entry.customId), entry.image])
+    );
+
+    return items.map((item) => ({
+      ...item,
+      image: imagesByCustomId.get(String(item.customId)) || '',
+    }));
+  },
   getById: (id: string) => apiRequest<Item>(`${API_BASE}/items/${id}`),
   create: (data: Omit<Item, '_id' | 'id' | 'customId' | 'timesRented' | 'createdAt' | 'updatedAt'>) =>
     apiRequest<Item>(`${API_BASE}/items`, {
