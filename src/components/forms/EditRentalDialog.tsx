@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { z } from "zod";
 import { toast } from "sonner";
 
@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-import { Plus, Calendar, Trash2 } from "lucide-react";
+import { Plus, Calendar, Trash2, IndianRupee, PlusCircle, Loader2 } from "lucide-react";
 import { useStore } from "@/data/store";
 import { formatCurrencyINR, getBillRepresentative } from "@/lib/utils";
 import { printInvoiceHtml } from "@/lib/invoiceTemplate";
@@ -142,6 +142,9 @@ export function EditRentalDialog({
   const [loading, setLoading] = useState(false);
   const [showInvoice, setShowInvoice] = useState(false);
   const [itemEditors, setItemEditors] = useState<Record<string, any>>({});
+  const [quickPayAmount, setQuickPayAmount] = useState("");
+  const [collectingPayment, setCollectingPayment] = useState(false);
+  const quickPayInputRef = useRef<HTMLInputElement>(null);
 
   // Find the main rental that holds bill-level info (discount, security, payments).
   // Uses getBillRepresentative so this always agrees with the backend's own
@@ -833,6 +836,36 @@ Thank you for choosing ARIHANT COLLECTION !`;
     }
   }
 
+  async function handleQuickPayment() {
+    const amount = parseFloat(quickPayAmount);
+    if (!amount || amount <= 0) {
+      toast.error("Sahi amount darj karein (0 se zyada hona chahiye).");
+      quickPayInputRef.current?.focus();
+      return;
+    }
+    setCollectingPayment(true);
+    try {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const existingPayments = relatedRentals.flatMap((r: Rental) => r.payments || []);
+      const newPayment = { amount, date: todayStr };
+      const combinedPayments = [...existingPayments, newPayment];
+      // Save to the bill representative piece
+      await updateRental(billRental.id, {
+        payments: combinedPayments,
+        advance: combinedPayments.reduce((s: number, p: { amount: number }) => s + Number(p.amount || 0), 0),
+      } as any);
+      // Refresh local form payments so UI updates immediately
+      setForm((c) => ({ ...c, payments: combinedPayments }));
+      toast.success(`${formatCurrencyINR(amount)} jama ho gaya!`);
+      setQuickPayAmount("");
+    } catch (err) {
+      console.error(err);
+      toast.error("Payment save nahi ho saki. Dobara try karein.");
+    } finally {
+      setCollectingPayment(false);
+    }
+  }
+
   function printInvoice() {
     if (typeof window === "undefined") return;
 
@@ -1363,6 +1396,54 @@ Thank you for choosing ARIHANT COLLECTION !`;
                     </div>
                   )}
                 </div>
+
+                {/* ── Quick Payment Collection ── */}
+                {aggFinalDue > 0 && (
+                  <div className="mt-3 border border-emerald-500/30 rounded-lg bg-emerald-500/5 p-3 space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <IndianRupee className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="text-xs font-bold text-emerald-700 uppercase tracking-wide">Payment Jama Karein</span>
+                      <span className="ml-auto text-[10px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded px-1.5 py-0.5">
+                        Baaki: {formatCurrencyINR(aggFinalDue)}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <IndianRupee className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                        <Input
+                          ref={quickPayInputRef}
+                          id={`quick-pay-${rental.billNo || rental.id}`}
+                          type="number"
+                          min="1"
+                          step="1"
+                          placeholder={`Amount (max ${aggFinalDue})`}
+                          value={quickPayAmount}
+                          onChange={(e) => setQuickPayAmount(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleQuickPayment(); } }}
+                          className="pl-7 h-8 text-sm"
+                          disabled={collectingPayment}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white gap-1 shrink-0 px-3"
+                        onClick={handleQuickPayment}
+                        disabled={collectingPayment || !quickPayAmount}
+                      >
+                        {collectingPayment
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          : <PlusCircle className="w-3.5 h-3.5" />}
+                        {collectingPayment ? "Saving..." : "Jama Karo"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {aggFinalDue <= 0 && (form.payments || []).length > 0 && (
+                  <div className="mt-3 flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-xs font-semibold">
+                    <IndianRupee className="w-3.5 h-3.5" /> Bill puri tarah clear ho chuka hai! ✓
+                  </div>
+                )}
               </div>
               <div className="sm:w-64 sm:text-right space-y-3">
                 <p className="text-[11px] text-muted-foreground leading-tight">

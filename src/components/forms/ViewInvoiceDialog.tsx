@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -9,8 +9,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Eye, Printer, Download, Send, Receipt } from "lucide-react";
+import { Eye, Printer, Download, Send, Receipt, IndianRupee, PlusCircle, Loader2 } from "lucide-react";
 import { useStore } from "@/data/store";
 import { formatCurrencyINR, getBillRepresentative } from "@/lib/utils";
 import { printInvoiceHtml, getPoliciesHtml } from "@/lib/invoiceTemplate";
@@ -32,9 +33,12 @@ export function ViewInvoiceDialog({
   trigger?: React.ReactNode;
   disabled?: boolean;
 }) {
-  const { rentals, getItem, getCustomer } = useStore();
+  const { rentals, getItem, getCustomer, updateRental } = useStore();
   const [open, setOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [collectingPayment, setCollectingPayment] = useState(false);
+  const paymentInputRef = useRef<HTMLInputElement>(null);
 
   const relatedRentals = useMemo(() => {
     if (rental.billNo) {
@@ -44,7 +48,7 @@ export function ViewInvoiceDialog({
   }, [rentals, rental.billNo, rental.id]);
 
   const mainBillRental = useMemo(() => {
-    return getBillRepresentative(relatedRentals) ?? rental;
+    return (getBillRepresentative(relatedRentals as any) ?? rental) as typeof rental;
   }, [relatedRentals, rental]);
 
   const customer = useMemo(() => {
@@ -105,6 +109,44 @@ export function ViewInvoiceDialog({
   else if (status === "active") invoiceTitle = "Delivery Invoice";
   else if (status === "returned") invoiceTitle = "Final Invoice";
   else if (status === "overdue") invoiceTitle = "Overdue Final Bill";
+
+  // Determine user role for payment permission
+  const userRole =
+    typeof window !== "undefined"
+      ? (localStorage.getItem("user_role") || "").trim().toLowerCase()
+      : "";
+  const canCollectPayment = ["admin", "reception"].includes(userRole);
+
+  async function handleCollectPayment() {
+    const amount = parseFloat(paymentAmount);
+    if (!amount || amount <= 0) {
+      toast.error("Sahi amount darj karein (0 se zyada hona chahiye).");
+      paymentInputRef.current?.focus();
+      return;
+    }
+    setCollectingPayment(true);
+    try {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      // Collect all existing payments from all pieces of this bill
+      const existingPayments = relatedRentals.flatMap((r) => r.payments || []);
+      const newPayment = { amount, date: todayStr };
+      const combinedPayments = [...existingPayments, newPayment];
+
+      // Always save payments on the bill representative
+      await updateRental(mainBillRental.id, {
+        payments: combinedPayments,
+        advance: combinedPayments.reduce((s, p) => s + Number(p.amount || 0), 0),
+      } as any);
+
+      toast.success(`${formatCurrencyINR(amount)} jama ho gaya!`);
+      setPaymentAmount("");
+    } catch (err) {
+      console.error(err);
+      toast.error("Payment save nahi ho saki. Dobara try karein.");
+    } finally {
+      setCollectingPayment(false);
+    }
+  }
 
   const billMakingDate = (mainBillRental as any).billMakingDate
     ? new Date((mainBillRental as any).billMakingDate).toLocaleDateString("en-IN")
@@ -700,6 +742,61 @@ Thank you for choosing ARIHANT COLLECTION!`;
                 </div>
               </div>
             </div>
+
+            {/* ── Payment Collection Section ── */}
+            {canCollectPayment && aggFinalDue > 0 && (
+              <div className="mt-4 border border-emerald-200 rounded-lg bg-emerald-50/60 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <IndianRupee className="w-4 h-4 text-emerald-700" />
+                  <p className="text-sm font-bold text-emerald-800 uppercase tracking-wide">
+                    Payment Jama Karein
+                  </p>
+                  <span className="ml-auto text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded px-2 py-0.5">
+                    Baaki: {formatCurrencyINR(aggFinalDue)}
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <IndianRupee className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                    <Input
+                      ref={paymentInputRef}
+                      id={`payment-input-${rental.billNo || rental.id}`}
+                      type="number"
+                      min="1"
+                      step="1"
+                      placeholder={`Amount darjj karein (max ${aggFinalDue})`}
+                      value={paymentAmount}
+                      onChange={(e) => setPaymentAmount(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleCollectPayment(); }}
+                      className="pl-8 bg-white border-emerald-300 focus:border-emerald-500 text-slate-900"
+                      disabled={collectingPayment}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleCollectPayment}
+                    disabled={collectingPayment || !paymentAmount}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 shrink-0"
+                  >
+                    {collectingPayment ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <PlusCircle className="w-4 h-4" />
+                    )}
+                    {collectingPayment ? "Jama ho raha..." : "Jama Karo"}
+                  </Button>
+                </div>
+                <p className="text-[10px] text-emerald-700">
+                  ✓ Yeh payment turant bill mein jud jayegi aur balance deduct ho jayega.
+                </p>
+              </div>
+            )}
+            {canCollectPayment && aggFinalDue <= 0 && billPayments.length > 0 && (
+              <div className="mt-4 flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                <IndianRupee className="w-4 h-4" />
+                <p className="text-sm font-semibold">Bill puri tarah clear ho chuka hai! ✓</p>
+              </div>
+            )}
 
             {/* Terms & Conditions */}
             <div className="border-t border-slate-200 pt-4 text-[10px] text-slate-600 space-y-1 leading-relaxed">
