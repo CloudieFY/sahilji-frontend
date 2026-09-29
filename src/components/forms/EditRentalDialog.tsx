@@ -64,7 +64,14 @@ const schema = z
     securityRefundNote: z.string().optional(),
     securityRefundDeduction: z.coerce.number().min(0).optional(),
   })
-  .refine((d) => new Date(d.endDate) >= new Date(d.startDate), {
+  .refine((d) => {
+    const start = d.startDate?.slice(0, 10);
+    const end = d.endDate?.slice(0, 10);
+
+    if (!start || !end) return true;
+
+    return end >= start;
+  }, {
     message: "End date must be after start date",
     path: ["endDate"],
   });
@@ -250,7 +257,11 @@ export function EditRentalDialog({
       deliveryTime: (entry as any).deliveryTime || "10:00",
       deliveryTimePeriod: (entry as any).deliveryTimePeriod || "Morning",
       startDate: entry.startDate ? entry.startDate.slice(0, 10) : today(),
-      endDate: entry.endDate ? entry.endDate.slice(0, 10) : today(),
+      endDate: (() => {
+        const start = entry.startDate ? entry.startDate.slice(0, 10) : today();
+        const end = entry.endDate ? entry.endDate.slice(0, 10) : start;
+        return end >= start ? end : start;
+      })(),
       endTime: (entry as any).endTime || "10:00",
       endTimePeriod: (entry as any).endTimePeriod || "Morning",
       rate: getRentalAmount(
@@ -359,7 +370,11 @@ export function EditRentalDialog({
       deliveryTime: (entry as any).deliveryTime || "10:00",
       deliveryTimePeriod: (entry as any).deliveryTimePeriod || "Morning",
       startDate: entry.startDate ? entry.startDate.slice(0, 10) : today(),
-      endDate: entry.endDate ? entry.endDate.slice(0, 10) : today(),
+      endDate: (() => {
+        const start = entry.startDate ? entry.startDate.slice(0, 10) : today();
+        const end = entry.endDate ? entry.endDate.slice(0, 10) : start;
+        return end >= start ? end : start;
+      })(),
       endTime: (entry as any).endTime || "10:00",
       endTimePeriod: (entry as any).endTimePeriod || "Morning",
       rate: entryRate,
