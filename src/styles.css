@@ -61,72 +61,80 @@
 :root {
   --radius: 0.5rem;
 
-  /* Light Sky Blue Theme (#F0F7FF) with Palette Accents (#DF301C Red, #FF9100 Orange, #00B7CD Cyan) */
-  --background: #F0F7FF;
-  --foreground: #1E293B;
+  /* ── ColorHunt Palette ──────────────────────────────────────────────────── */
+  /* #E73F1E  Vivid Red-Orange  → primary, destructive, ring                  */
+  /* #FB6C00  Warm Orange       → accent / gold                               */
+  /* #F9B637  Amber             → highlights, chart-2                         */
+  /* #FFDD9C  Soft Cream-Peach  → backgrounds, secondary, sidebar             */
+  /* ─────────────────────────────────────────────────────────────────────── */
+
+  --background: #FFF8EE;
+  --foreground: #1C1207;
 
   --card: #FFFFFF;
-  --card-foreground: #1E293B;
+  --card-foreground: #1C1207;
 
   --popover: #FFFFFF;
-  --popover-foreground: #1E293B;
+  --popover-foreground: #1C1207;
 
-  --primary: #DF301C;
+  --primary: #E73F1E;
   --primary-foreground: #FFFFFF;
 
-  --secondary: #E4F1FF;
-  --secondary-foreground: #1E293B;
+  --secondary: #FFEDD4;
+  --secondary-foreground: #7A3010;
 
-  --muted: #E4F1FF;
-  --muted-foreground: #64748B;
+  --muted: #FFEDD4;
+  --muted-foreground: #9C6A3A;
 
-  --accent: #FF9100;
+  --accent: #FB6C00;
   --accent-foreground: #FFFFFF;
 
-  --destructive: #DF301C;
+  --destructive: #E73F1E;
   --destructive-foreground: #FFFFFF;
 
-  --border: #D0E4F7;
-  --input: #F0F7FF;
-  --ring: #DF301C;
+  --border: #F5C98A;
+  --input: #FFF3E0;
+  --ring: #E73F1E;
 
-  --gold: #FF9100;
+  /* gold = warm orange, emerald = amber, burgundy = red-orange */
+  --gold: #FB6C00;
   --gold-foreground: #FFFFFF;
-  --emerald: #00B7CD;
-  --burgundy: #DF301C;
+  --emerald: #F9B637;
+  --burgundy: #E73F1E;
 
   --gradient-noir: linear-gradient(
     180deg,
-    #F0F7FF 0%,
-    #E4F1FF 100%
+    #FFF8EE 0%,
+    #FFEDD4 100%
   );
   --gradient-gold: linear-gradient(
     135deg,
-    #DF301C 0%,
-    #FF9100 100%
+    #E73F1E 0%,
+    #FB6C00 50%,
+    #F9B637 100%
   );
-  --shadow-elegant: 0 10px 30px -10px rgba(0, 0, 0, 0.05);
-  --shadow-glow: 0 0 25px rgba(223, 48, 28, 0.1);
+  --shadow-elegant: 0 10px 30px -10px rgba(231, 63, 30, 0.12);
+  --shadow-glow: 0 0 25px rgba(251, 108, 0, 0.18);
 
-  --chart-1: #DF301C;
-  --chart-2: #FF9100;
-  --chart-3: #00B7CD;
-  --chart-4: #E67E22;
-  --chart-5: #2C3E50;
+  --chart-1: #E73F1E;
+  --chart-2: #FB6C00;
+  --chart-3: #F9B637;
+  --chart-4: #FFDD9C;
+  --chart-5: #7A3010;
 
-  --sidebar: #FFFFFF;
-  --sidebar-foreground: #1E293B;
-  --sidebar-primary: #DF301C;
+  --sidebar: #FFEDD4;
+  --sidebar-foreground: #1C1207;
+  --sidebar-primary: #E73F1E;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #E4F1FF;
-  --sidebar-accent-foreground: #DF301C;
-  --sidebar-border: #D0E4F7;
-  --sidebar-ring: #DF301C;
+  --sidebar-accent: #FFDD9C;
+  --sidebar-accent-foreground: #E73F1E;
+  --sidebar-border: #F5C98A;
+  --sidebar-ring: #E73F1E;
 }
 
 .dark {
-  --background: #F0F7FF;
-  --foreground: #1E293B;
+  --background: #FFF8EE;
+  --foreground: #1C1207;
 }
 
 @layer base {
@@ -141,7 +149,7 @@
 
   body {
     min-height: 100vh;
-    background: #F0F7FF;
+    background: #FFF8EE;
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;

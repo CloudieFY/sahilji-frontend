@@ -436,7 +436,7 @@ export default function ReportsPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="font-display text-2xl sm:text-3xl truncate">{stats.newRentalsCount}</div>
+                  <div className="text-2xl sm:text-3xl font-bold font-sans tracking-tight truncate">{stats.newRentalsCount}</div>
                 </CardContent>
               </Card>
               <Card className="glass-panel">
@@ -446,7 +446,7 @@ export default function ReportsPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="font-display text-2xl sm:text-3xl text-gold truncate">{formatCurrencyINR(stats.totalIncome)}</div>
+                  <div className="text-2xl sm:text-3xl font-bold font-sans tracking-tight text-gold truncate">{formatCurrencyINR(stats.totalIncome)}</div>
                 </CardContent>
               </Card>
               <Card className="glass-panel">
@@ -456,7 +456,7 @@ export default function ReportsPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="font-display text-2xl sm:text-3xl text-emerald-500 truncate">{formatCurrencyINR(stats.totalAdvance)}</div>
+                  <div className="text-2xl sm:text-3xl font-bold font-sans tracking-tight text-emerald-500 truncate">{formatCurrencyINR(stats.totalAdvance)}</div>
                 </CardContent>
               </Card>
               <Card className="glass-panel">
@@ -466,7 +466,7 @@ export default function ReportsPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="font-display text-2xl sm:text-3xl truncate">{formatCurrencyINR(stats.totalDiscount)}</div>
+                  <div className="text-2xl sm:text-3xl font-bold font-sans tracking-tight truncate">{formatCurrencyINR(stats.totalDiscount)}</div>
                 </CardContent>
               </Card>
             </div>

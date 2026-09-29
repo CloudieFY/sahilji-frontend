@@ -192,7 +192,7 @@ export default function CustomersPage() {
                   <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
                     Lifetime
                   </p>
-                  <p className="font-display text-2xl text-gold">
+                  <p className="font-sans font-bold text-2xl tracking-tight text-gold">
                     {formatCurrencyINR(c.totalSpent)}
                   </p>
                 </div>
@@ -200,7 +200,7 @@ export default function CustomersPage() {
                   <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
                     Rentals
                   </p>
-                  <p className="font-display text-2xl">{c.rentals}</p>
+                  <p className="font-sans font-bold text-2xl tracking-tight">{c.rentals}</p>
                 </div>
               </div>
             </CardContent>

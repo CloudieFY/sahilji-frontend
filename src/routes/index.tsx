@@ -368,7 +368,7 @@ export default function DashboardPage() {
                   <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
                     {label}
                   </p>
-                  <p className="mt-2 font-display text-2xl">{value}</p>
+                  <p className="mt-2 text-2xl font-bold font-sans tracking-tight text-foreground">{value}</p>
                 </button>
               ))}
             </div>
@@ -390,7 +390,7 @@ export default function DashboardPage() {
                 className="absolute bottom-5 left-5 right-5 rounded-md border border-border bg-background/65 p-4 text-left backdrop-blur-md transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold lg:left-auto lg:w-72"
               >
                 <p className="eyebrow">Most Requested</p>
-                <p className="mt-2 font-display text-2xl truncate">
+                <p className="mt-2 text-xl font-bold font-sans tracking-tight text-foreground truncate">
                   {dashboardStats.heroPiece.id} - {dashboardStats.heroPiece.name}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -426,7 +426,7 @@ export default function DashboardPage() {
                   </span>
                   <Icon className="h-4 w-4 shrink-0 text-gold" />
                 </div>
-                <div className="font-display text-3xl leading-none">{s.value}</div>
+                <div className="text-3xl font-bold font-sans tracking-tight leading-none text-foreground">{s.value}</div>
                 <div className="mt-3 flex items-center text-xs text-emerald">
                   <ArrowUpRight className="mr-1 h-3 w-3" /> {s.helper}
                 </div>
@@ -625,7 +625,7 @@ export default function DashboardPage() {
                   onClick={() => openDashboardData("/inventory", item.id)}
                   className="flex w-full items-center gap-3 rounded-md text-left transition-colors hover:bg-secondary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
                 >
-                  <span className="w-7 font-display text-3xl text-gold">{index + 1}</span>
+                  <span className="w-7 text-2xl font-bold font-sans text-gold">{index + 1}</span>
                   <img
                     src={item.image}
                     alt={item.name}

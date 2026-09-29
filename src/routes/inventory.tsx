@@ -129,7 +129,7 @@ function InventoryItemCard({ item, role, deletingId, handleDelete }: { item: any
           {item.id} - {item.name}
         </h3>
         <div className="flex items-baseline justify-between mt-2 sm:mt-3 gap-2">
-          <span className="text-gold font-display text-lg sm:text-xl">{formatCurrencyINR(item.pricePerDay)}</span>
+          <span className="text-gold font-sans font-bold text-lg sm:text-xl tracking-tight">{formatCurrencyINR(item.pricePerDay)}</span>
           <span className="text-[10px] sm:text-[11px] text-muted-foreground shrink-0">Size {item.size}</span>
         </div>
         <div className="hairline mt-4" />

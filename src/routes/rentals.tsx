@@ -214,7 +214,7 @@ export default function RentalsPage() {
             <p className="text-[9px] sm:text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
               {k} Balance
             </p>
-            <p className={`font-display text-lg sm:text-2xl mt-2 ${balanceSummary[k] > 0 ? "text-red-500" : "text-emerald-500"}`}>
+            <p className={`font-sans font-bold text-lg sm:text-2xl mt-2 tracking-tight ${balanceSummary[k] > 0 ? "text-red-500" : "text-emerald-500"}`}>
               {formatCurrencyINR(balanceSummary[k])}
             </p>
           </Card>
@@ -223,7 +223,7 @@ export default function RentalsPage() {
           <p className="text-[9px] sm:text-[10px] uppercase tracking-[0.25em] text-gold font-semibold">
             Total Balance
           </p>
-          <p className={`font-display text-2xl sm:text-3xl mt-2 font-bold ${balanceSummary.total > 0 ? "text-red-600" : "text-emerald-600"}`}>
+          <p className={`font-sans font-bold text-2xl sm:text-3xl mt-2 tracking-tight ${balanceSummary.total > 0 ? "text-red-600" : "text-emerald-600"}`}>
             {formatCurrencyINR(balanceSummary.total)}
           </p>
         </Card>

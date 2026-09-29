@@ -259,18 +259,32 @@ size: DEFAULT_SIZE,
   return (
     <Dialog open={isOpen} onOpenChange={setOpen}>
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
-      <DialogContent className="w-full max-w-full sm:max-w-lg max-h-[90vh] overflow-y-auto px-2 sm:px-0">
-        <DialogHeader>
-          <DialogTitle className="font-display text-2xl">Add a Piece</DialogTitle>
-          <DialogDescription>Catalog a new item in the vault.</DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-6 mt-2">
-          {/* Identity Section */}
-          <div className="space-y-4 rounded-lg border border-border bg-secondary/10 p-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border pb-2">Item Identity</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="customId">Item No</Label>
+      <DialogContent className="w-full max-w-full sm:max-w-lg max-h-[90vh] overflow-y-auto p-0 gap-0">
+
+        {/* ── Dialog Header ── */}
+        <div className="bg-gradient-to-r from-[#E73F1E] via-[#FB6C00] to-[#F9B637] px-6 pt-6 pb-4 sticky top-0 z-10">
+          <DialogHeader>
+          <DialogTitle className="font-display text-2xl text-white tracking-wide">
+            Add a Piece
+          </DialogTitle>
+          <DialogDescription className="text-white/80 text-sm">
+            Catalog a new item in the vault.
+          </DialogDescription>
+          </DialogHeader>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-5 p-6 bg-[#FFF8EE]">
+
+          {/* ── Item Identity ── */}
+          <div className="rounded-xl border border-[#F5C98A] bg-white shadow-sm overflow-hidden">
+            <div className="px-4 py-2.5 bg-gradient-to-r from-[#FFEDD4] to-[#FFF3E0] border-b border-[#F5C98A] flex items-center gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#E73F1E]">
+                📋 Item Identity
+              </span>
+            </div>
+            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid gap-1.5">
+                <Label htmlFor="customId" className="text-xs font-semibold text-[#7A3010]">Item No</Label>
                 <Input
                   id="customId"
                   value={form.customId}
@@ -278,10 +292,11 @@ size: DEFAULT_SIZE,
                   placeholder="e.g. VV-1234"
                   maxLength={40}
                   required
+                  className="border-[#F5C98A] bg-[#FFF8EE] focus:border-[#E73F1E] focus:ring-[#E73F1E]/20 placeholder:text-[#C09A6A]"
                 />
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="name">Name</Label>
+              <div className="grid gap-1.5">
+                <Label htmlFor="name" className="text-xs font-semibold text-[#7A3010]">Name</Label>
                 <Input
                   id="name"
                   value={form.name}
@@ -289,10 +304,11 @@ size: DEFAULT_SIZE,
                   placeholder="Onyx Tuxedo Coat"
                   maxLength={80}
                   required
+                  className="border-[#F5C98A] bg-[#FFF8EE] focus:border-[#E73F1E] focus:ring-[#E73F1E]/20 placeholder:text-[#C09A6A]"
                 />
               </div>
-              <div className="grid gap-2 sm:col-span-2">
-                <Label htmlFor="designer">Designer</Label>
+              <div className="grid gap-1.5 sm:col-span-2">
+                <Label htmlFor="designer" className="text-xs font-semibold text-[#7A3010]">Designer / Brand</Label>
                 <Input
                   id="designer"
                   value={form.designer}
@@ -300,49 +316,39 @@ size: DEFAULT_SIZE,
                   placeholder="Maison Noir"
                   maxLength={60}
                   required
+                  className="border-[#F5C98A] bg-[#FFF8EE] focus:border-[#E73F1E] focus:ring-[#E73F1E]/20 placeholder:text-[#C09A6A]"
                 />
               </div>
             </div>
           </div>
 
-          {/* Classification Section */}
-          <div className="space-y-4 rounded-lg border border-border bg-secondary/10 p-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border pb-2">Classification</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="category">Category</Label>
+          {/* ── Classification ── */}
+          <div className="rounded-xl border border-[#F5C98A] bg-white shadow-sm overflow-hidden">
+            <div className="px-4 py-2.5 bg-gradient-to-r from-[#FFEDD4] to-[#FFF3E0] border-b border-[#F5C98A]">
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#E73F1E]">
+                🏷️ Classification
+              </span>
+            </div>
+            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid gap-1.5">
+                <Label htmlFor="category" className="text-xs font-semibold text-[#7A3010]">Category</Label>
                 <Select
                   value={form.category}
                   onValueChange={(v) => {
                     if (v === CUSTOM_CATEGORY) {
-                      setForm({
-                        ...form,
-                        category: v,
-                        subcategory: CUSTOM_SUBCATEGORY,
-                        customCategory: "",
-                        customSubcategory: "",
-                      });
+                      setForm({ ...form, category: v, subcategory: CUSTOM_SUBCATEGORY, customCategory: "", customSubcategory: "" });
                       return;
                     }
-
                     const firstSubcategory = categorySubcategoryMap[v as keyof typeof categorySubcategoryMap]?.[0] || "";
-                    setForm({
-                      ...form,
-                      category: v,
-                      subcategory: firstSubcategory,
-                      customCategory: "",
-                      customSubcategory: "",
-                    });
+                    setForm({ ...form, category: v, subcategory: firstSubcategory, customCategory: "", customSubcategory: "" });
                   }}
                 >
-                  <SelectTrigger id="category">
+                  <SelectTrigger id="category" className="border-[#F5C98A] bg-[#FFF8EE]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {categoryOptions.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {c}
-                      </SelectItem>
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
                     ))}
                     <SelectItem value={CUSTOM_CATEGORY}>Custom category</SelectItem>
                   </SelectContent>
@@ -355,11 +361,12 @@ size: DEFAULT_SIZE,
                     placeholder="Enter new category"
                     maxLength={20}
                     required
+                    className="border-[#F5C98A] bg-[#FFF8EE] focus:border-[#E73F1E]"
                   />
                 )}
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="subcategory">Subcategory</Label>
+              <div className="grid gap-1.5">
+                <Label htmlFor="subcategory" className="text-xs font-semibold text-[#7A3010]">Subcategory</Label>
                 {form.category === CUSTOM_CATEGORY ? (
                   <Input
                     id="customSubcategory"
@@ -368,21 +375,17 @@ size: DEFAULT_SIZE,
                     placeholder="Enter new subcategory"
                     maxLength={40}
                     required
+                    className="border-[#F5C98A] bg-[#FFF8EE] focus:border-[#E73F1E]"
                   />
                 ) : (
                   <>
-                    <Select
-                      value={form.subcategory}
-                      onValueChange={(v) => setForm({ ...form, subcategory: v })}
-                    >
-                      <SelectTrigger id="subcategory">
+                    <Select value={form.subcategory} onValueChange={(v) => setForm({ ...form, subcategory: v })}>
+                      <SelectTrigger id="subcategory" className="border-[#F5C98A] bg-[#FFF8EE]">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                    {(categorySubcategoryMap[form.category as keyof typeof categorySubcategoryMap] || []).map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {s}
-                          </SelectItem>
+                        {(categorySubcategoryMap[form.category as keyof typeof categorySubcategoryMap] || []).map((s) => (
+                          <SelectItem key={s} value={s}>{s}</SelectItem>
                         ))}
                         <SelectItem value={CUSTOM_SUBCATEGORY}>Custom subcategory</SelectItem>
                       </SelectContent>
@@ -395,31 +398,27 @@ size: DEFAULT_SIZE,
                         placeholder="Enter new subcategory"
                         maxLength={40}
                         required
+                        className="border-[#F5C98A] bg-[#FFF8EE] focus:border-[#E73F1E]"
                       />
                     )}
                   </>
                 )}
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="size">Size</Label>
-                <Select
-                  value={form.size}
-                  onValueChange={(v) => setForm({ ...form, size: v })}
-                >
-                  <SelectTrigger id="size">
+              <div className="grid gap-1.5">
+                <Label htmlFor="size" className="text-xs font-semibold text-[#7A3010]">Size</Label>
+                <Select value={form.size} onValueChange={(v) => setForm({ ...form, size: v })}>
+                  <SelectTrigger id="size" className="border-[#F5C98A] bg-[#FFF8EE]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {SIZE_OPTIONS.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s}
-                      </SelectItem>
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="color">Color</Label>
+              <div className="grid gap-1.5">
+                <Label htmlFor="color" className="text-xs font-semibold text-[#7A3010]">Color</Label>
                 <Input
                   id="color"
                   value={form.color}
@@ -427,53 +426,51 @@ size: DEFAULT_SIZE,
                   placeholder="Emerald"
                   maxLength={30}
                   required
+                  className="border-[#F5C98A] bg-[#FFF8EE] focus:border-[#E73F1E] focus:ring-[#E73F1E]/20 placeholder:text-[#C09A6A]"
                 />
               </div>
             </div>
           </div>
 
-          {/* Pricing & Status Section */}
-          <div className="space-y-4 rounded-lg border border-border bg-secondary/10 p-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border pb-2">Pricing & Status</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="price">Rental value (INR)</Label>
-                <Input
-                  id="price"
-                  type="number"
-                  min={0}
-                  value={form.pricePerDay}
-                  onChange={(e) =>
-                    setForm({ ...form, pricePerDay: e.target.value })
-                  }
-                  placeholder={formatCurrencyINR(95)}
-                  required
-                />
+          {/* ── Pricing & Status ── */}
+          <div className="rounded-xl border border-[#F5C98A] bg-white shadow-sm overflow-hidden">
+            <div className="px-4 py-2.5 bg-gradient-to-r from-[#FFEDD4] to-[#FFF3E0] border-b border-[#F5C98A]">
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#E73F1E]">
+                💰 Pricing &amp; Status
+              </span>
+            </div>
+            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid gap-1.5">
+                <Label htmlFor="price" className="text-xs font-semibold text-[#7A3010]">Rental Value (INR)</Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#FB6C00] font-bold text-sm">₹</span>
+                  <Input
+                    id="price"
+                    type="number"
+                    min={0}
+                    value={form.pricePerDay}
+                    onChange={(e) => setForm({ ...form, pricePerDay: e.target.value })}
+                    placeholder="0"
+                    required
+                    className="pl-7 border-[#F5C98A] bg-[#FFF8EE] focus:border-[#E73F1E] focus:ring-[#E73F1E]/20"
+                  />
+                </div>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="status">Status</Label>
-                <Select
-                  value={form.status}
-                  onValueChange={(v: ItemStatus) =>
-                    setForm({ ...form, status: v })
-                  }
-                >
-                  <SelectTrigger id="status">
+              <div className="grid gap-1.5">
+                <Label htmlFor="status" className="text-xs font-semibold text-[#7A3010]">Status</Label>
+                <Select value={form.status} onValueChange={(v: ItemStatus) => setForm({ ...form, status: v })}>
+                  <SelectTrigger id="status" className="border-[#F5C98A] bg-[#FFF8EE]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(["available", "rented", "cleaning", "reserved"] as const).map(
-                      (s) => (
-                        <SelectItem key={s} value={s}>
-                          {s[0].toUpperCase() + s.slice(1)}
-                        </SelectItem>
-                      ),
-                    )}
+                    {(["available", "rented", "cleaning", "reserved"] as const).map((s) => (
+                      <SelectItem key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="quantity">Quantity</Label>
+              <div className="grid gap-1.5 sm:col-span-2">
+                <Label htmlFor="quantity" className="text-xs font-semibold text-[#7A3010]">Quantity</Label>
                 <Input
                   id="quantity"
                   type="number"
@@ -481,27 +478,33 @@ size: DEFAULT_SIZE,
                   value={form.quantity}
                   onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
                   required
+                  className="border-[#F5C98A] bg-[#FFF8EE] focus:border-[#E73F1E] focus:ring-[#E73F1E]/20"
                 />
               </div>
             </div>
           </div>
 
-          <div className="grid gap-2">
-            <Label htmlFor="image">Upload Image</Label>
-            <div className="grid gap-3 rounded-md border border-border bg-secondary/30 p-4">
+          {/* ── Image Upload ── */}
+          <div className="rounded-xl border border-[#F5C98A] bg-white shadow-sm overflow-hidden">
+            <div className="px-4 py-2.5 bg-gradient-to-r from-[#FFEDD4] to-[#FFF3E0] border-b border-[#F5C98A]">
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#E73F1E]">
+                🖼️ Photos
+              </span>
+            </div>
+            <div className="p-4 space-y-3">
               {form.images && form.images.length > 0 ? (
-                <div className="flex flex-wrap gap-2 sm:gap-3">
+                <div className="flex flex-wrap gap-2">
                   {form.images.map((img, idx) => (
                     <div key={idx} className="relative group shrink-0">
                       <img
                         src={img}
                         alt={`Preview ${idx + 1}`}
-                        className="h-20 w-16 sm:h-20 sm:w-16 rounded-sm border border-border object-cover shadow-sm"
+                        className="h-20 w-16 rounded-lg border-2 border-[#F5C98A] object-cover shadow-sm"
                       />
                       <button
                         type="button"
                         onClick={() => setForm(c => ({ ...c, images: c.images.filter((_, i) => i !== idx) }))}
-                        className="absolute -top-2 -right-2 bg-destructive text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                        className="absolute -top-2 -right-2 bg-[#E73F1E] text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -509,9 +512,9 @@ size: DEFAULT_SIZE,
                   ))}
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground">
-                  Add a clear garment photo. JPG, PNG, or WEBP up to 2 MB.
-                </p>
+                <div className="border-2 border-dashed border-[#F5C98A] rounded-lg p-4 text-center bg-[#FFF8EE]">
+                  <p className="text-xs text-[#9C6A3A]">📸 Add a clear garment photo. JPG, PNG, or WEBP.</p>
+                </div>
               )}
               <Input
                 id="image"
@@ -519,23 +522,27 @@ size: DEFAULT_SIZE,
                 multiple
                 accept="image/*"
                 onChange={(e) => handleImagesUpload(e.target.files)}
+                className="border-[#F5C98A] bg-[#FFF8EE] text-sm cursor-pointer file:bg-[#FFEDD4] file:text-[#E73F1E] file:border-0 file:rounded-md file:px-3 file:py-1 file:text-xs file:font-semibold file:mr-3"
               />
             </div>
           </div>
-          <DialogFooter>
+
+          {/* ── Footer Buttons ── */}
+          <DialogFooter className="pt-2 flex gap-3">
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               onClick={() => setOpen(false)}
+              className="border-[#F5C98A] text-[#7A3010] hover:bg-[#FFEDD4] flex-1"
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              className="bg-gold text-gold-foreground hover:bg-gold/90"
               disabled={loading}
+              className="flex-1 bg-gradient-to-r from-[#E73F1E] via-[#FB6C00] to-[#F9B637] hover:from-[#C9310F] hover:to-[#E09A00] text-white font-bold shadow-md border-0"
             >
-              {loading ? "Adding..." : "Add Piece"}
+              {loading ? "Adding..." : "✦ Add Piece"}
             </Button>
           </DialogFooter>
         </form>

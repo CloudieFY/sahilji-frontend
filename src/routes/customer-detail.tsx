@@ -253,7 +253,7 @@ export default function CustomerDetailPage({ id }: { id: string }) {
             <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
               Lifetime value
             </p>
-            <p className="font-display text-3xl text-gold mt-2">
+            <p className="font-sans font-bold text-3xl tracking-tight text-gold mt-2">
               {formatCurrencyINR(liveStats.totalSpent)}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
@@ -267,7 +267,7 @@ export default function CustomerDetailPage({ id }: { id: string }) {
             <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
               Rentals
             </p>
-            <p className="font-display text-3xl mt-2">{liveStats.count}</p>
+            <p className="font-sans font-bold text-3xl tracking-tight mt-2">{liveStats.count}</p>
             <p className="text-xs text-muted-foreground mt-1">
               Stored: {customer.rentals || 0}
             </p>

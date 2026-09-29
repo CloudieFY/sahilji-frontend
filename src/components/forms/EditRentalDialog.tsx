@@ -80,6 +80,91 @@ function formatDate(dateStr: string) {
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
+// DateInput: shows dd/mm/yyyy to the user but stores yyyy-mm-dd internally
+function DateInput({
+  value,
+  onChange,
+  id,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  id?: string;
+}) {
+  const [display, setDisplay] = useState(value ? formatDate(value) : "");
+  const hiddenRef = useRef<HTMLInputElement>(null);
+
+  // sync display when value changes externally
+  useEffect(() => {
+    setDisplay(value ? formatDate(value) : "");
+  }, [value]);
+
+  function handleChange(raw: string) {
+    // Allow typing with auto-slash insertion
+    let v = raw.replace(/[^0-9/]/g, "");
+    // auto-insert slashes
+    if (v.length === 2 && display.length === 1) v = v + "/";
+    if (v.length === 5 && display.length === 4) v = v + "/";
+    if (v.length > 10) v = v.slice(0, 10);
+    setDisplay(v);
+
+    // parse to yyyy-mm-dd when complete
+    if (v.length === 10) {
+      const parts = v.split("/");
+      if (parts.length === 3) {
+        const [dd, mm, yyyy] = parts;
+        const iso = `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+        if (!isNaN(new Date(iso).getTime())) {
+          onChange(iso);
+        }
+      }
+    }
+  }
+
+  function openPicker() {
+    try {
+      hiddenRef.current?.showPicker();
+    } catch {
+      hiddenRef.current?.click();
+    }
+  }
+
+  return (
+    <div className="relative flex items-center">
+      {/* Text input showing dd/mm/yyyy */}
+      <input
+        id={id}
+        type="text"
+        inputMode="numeric"
+        placeholder="dd/mm/yyyy"
+        value={display}
+        onChange={(e) => handleChange(e.target.value)}
+        maxLength={10}
+        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 pr-10 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+      />
+      {/* Hidden native date input - triggered by calendar icon */}
+      <input
+        ref={hiddenRef}
+        type="date"
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+        tabIndex={-1}
+        className="absolute right-0 opacity-0 w-0 h-0 pointer-events-none"
+        aria-hidden="true"
+      />
+      {/* Calendar icon opens native date picker */}
+      <button
+        type="button"
+        onClick={openPicker}
+        className="absolute right-2.5 text-muted-foreground hover:text-foreground transition-colors"
+        tabIndex={-1}
+        aria-label="Open date picker"
+      >
+        <Calendar className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
 function daysBetween(start: string, end: string) {
   if (!start || !end) return 0;
   const s = new Date(start).getTime();
@@ -133,7 +218,7 @@ export function EditRentalDialog({
   trigger: React.ReactNode;
   disabled?: boolean;
 }) {
-  const { items, getItem, getCustomer, updateRental, updateItem, rentals } = useStore();
+  const { items, getItem, getCustomer, updateRental, updateItem, rentals, deleteRental } = useStore();
 
   const rentalItem = useMemo(() => getItem(rental.itemId), [getItem, rental.itemId]);
   const customer = useMemo(() => getCustomer(rental.customerId), [getCustomer, rental.customerId]);
@@ -1074,9 +1159,30 @@ Thank you for choosing ARIHANT COLLECTION !`;
                           Item No: {entry.itemNo || entry.itemId}
                         </p>
                       </div>
-                      <div className="text-right text-xs text-muted-foreground shrink-0">
-                        <p className="font-semibold text-foreground">{formatCurrencyINR(entrySubtotal)}</p>
-                        <p>Qty: {entryQty}</p>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="text-right text-xs text-muted-foreground">
+                          <p className="font-semibold text-foreground">{formatCurrencyINR(entrySubtotal)}</p>
+                          <p>Qty: {entryQty}</p>
+                        </div>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          title="Remove this item"
+                          onClick={async () => {
+                            if (!window.confirm(`Remove "${entryItem?.name || entry.itemId}" from this bill?`)) return;
+                            try {
+                              await deleteRental(entry.id);
+                              toast.success("Item removed from bill");
+                            } catch (err) {
+                              console.error(err);
+                              toast.error("Failed to remove item");
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
 
@@ -1106,18 +1212,16 @@ Thank you for choosing ARIHANT COLLECTION !`;
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="grid gap-2">
                         <Label>Delivery Date</Label>
-                        <Input
-                          type="date"
+                        <DateInput
                           value={editor.deliveryDate ?? today()}
-                          onChange={(e) => updateItemEditor(entry.id, { deliveryDate: e.target.value })}
+                          onChange={(val) => updateItemEditor(entry.id, { deliveryDate: val })}
                         />
                       </div>
                       <div className="grid gap-2">
                         <Label>Return Date</Label>
-                        <Input
-                          type="date"
+                        <DateInput
                           value={editor.endDate ?? today()}
-                          onChange={(e) => updateItemEditor(entry.id, { endDate: e.target.value })}
+                          onChange={(val) => updateItemEditor(entry.id, { endDate: val })}
                         />
                       </div>
                     </div>

@@ -230,12 +230,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         console.info("[store] deleteRental started", { id, billNo });
         await rentalsApi.delete(id, billNo);
         console.info("[store] deleteRental backend success", { id, billNo });
-        // Best-effort local cleanup: remove matching bill if present, else remove single rental.
-        if (billNo) {
-          setRentals((prev) => prev.filter((rental) => rental.billNo !== billNo));
-        } else {
-          setRentals((prev) => prev.filter((rental) => rental.id !== id));
-        }
+        // Always remove only the single deleted rental by id from local state
+        setRentals((prev) => prev.filter((rental) => rental.id !== id));
         // Deleting a rental also frees up item stock and adjusts customer totals on
         // the backend; reconcile those in the background so the delete itself
         // resolves instantly instead of blocking on a full refetch.

@@ -191,8 +191,9 @@ export function ViewInvoiceDialog({
         <head>
           <title>Invoice ${rental.billNo || rental.id}</title>
           <style>
-            @page { size: A4; margin: 10mm 15mm; }
-            body { margin: 0; padding: 0; background: #fff; }
+            @page { size: A4; margin: 12mm 15mm; }
+            * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; box-sizing: border-box; }
+            body { margin: 0; padding: 0; background: #fff; font-family: -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             .header { display: flex; align-items: center; border-bottom: 2px solid #d4af37; padding-bottom: 6px; margin-bottom: 10px; }
             .logo { width: 50px; height: 50px; margin-right: 15px; border-radius: 50%; border: 1px solid #eee; object-fit: cover; }
             .company-info h1 { margin: 0; font-size: 18px; color: #111; letter-spacing: 1.2px; text-transform: uppercase; }
@@ -215,13 +216,13 @@ export function ViewInvoiceDialog({
             .sign-box { flex: 0 0 40%; text-align: center; min-height: 50px; border-bottom: 1px solid #222; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 4px; }
             .sign-box p { margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; }
             .sign-img { max-height: 45px; max-width: 100%; margin: 0 auto 4px auto; object-fit: contain; }
-            .invoice-half { min-height: 100%; padding: 5mm 0; box-sizing: border-box; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #222; position: relative; z-index: 1; }
+            .invoice-half { padding: 0; box-sizing: border-box; font-family: -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #222; position: relative; z-index: 1; }
             .watermark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 60px; color: rgba(212, 175, 55, 0.1); z-index: -1; white-space: nowrap; pointer-events: none; font-weight: bold; }
             tr { page-break-inside: avoid; }
             @media print {
-              @page { size: A4; margin: 0; }
+              @page { size: A4; margin: 12mm 15mm; }
               body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-              .invoice-half { padding: 10mm; }
+              .invoice-half { padding: 0; }
             }
           </style>
         </head>
@@ -407,21 +408,26 @@ export function ViewInvoiceDialog({
       );
       const filename = `Invoice-${filenameSafe}.pdf`;
 
-      const htmlString = `
-        <div id="pdf-container" style="background-color: #ffffff; color: #000000; padding: 10px; width: 100%;">
-          ${getA4InvoiceHtml()}
-        </div>
-      `;
+      // Pass the full HTML document string directly — do NOT wrap in a <div>
+      // because getA4InvoiceHtml() already returns a complete <html>...</html>
+      // document. Nesting it inside another element breaks html2canvas rendering
+      // and produces blurry / misaligned output.
+      const htmlString = getA4InvoiceHtml();
 
       await html2pdf()
         .set({
-          margin: 8,
+          margin: [8, 8, 8, 8],
           filename,
-          image: { type: "jpeg", quality: 0.98 },
+          // PNG preserves sharp text & thin lines — jpeg compression blurs them.
+          image: { type: "png" },
           html2canvas: {
-            scale: 2,
+            // scale 4 = 4× device-pixel-ratio → crisp at any zoom level
+            scale: 4,
             useCORS: true,
             backgroundColor: "#ffffff",
+            letterRendering: true,
+            // Match the A4 width (794 px at 96 dpi) so layout is never squashed
+            windowWidth: 794,
           },
           jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
         })
