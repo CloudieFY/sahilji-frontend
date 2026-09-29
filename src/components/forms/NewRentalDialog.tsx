@@ -153,6 +153,54 @@ export function NewRentalDialog({
   const [loading, setLoading] = useState(false);
   const [billNoLoading, setBillNoLoading] = useState(false);
 
+  function isItemAlreadyBooked(item: any, deliveryDate?: string, returnDate?: string) {
+    if (!item) return false;
+
+    // Direct status check: if piece is currently rented, reserved, or in cleaning
+    if (item.status === "rented" || item.status === "cleaning" || item.status === "reserved") {
+      return true;
+    }
+
+    const isSafa = isSafaItem(item);
+    if (isSafa) {
+      const stockQty = Number((item as any)?.quantity) || 1;
+      const safaBooked = rentals
+        .filter((r) => {
+          const match = r.itemId === item.id || r.itemId === item.customId || (r as any).item?._id === item._id || (r as any).item?.customId === item.id;
+          return match && (r.status === "active" || r.status === "upcoming" || r.status === "overdue");
+        })
+        .reduce((sum, r) => sum + (Number((r as any).quantity) || 1), 0);
+      return safaBooked >= stockQty;
+    }
+
+    // For non-safa items: check if any active/upcoming/overdue rental exists
+    const hasBooking = rentals.some((r) => {
+      const match =
+        r.itemId === item.id ||
+        r.itemId === item.customId ||
+        (r as any).itemId === item._id ||
+        (r as any).item?._id === item._id ||
+        (r as any).item?.customId === item.id ||
+        (r as any).item?.customId === item.customId;
+      if (!match) return false;
+      if (r.status !== "active" && r.status !== "upcoming" && r.status !== "overdue") return false;
+
+      if (r.status === "overdue") return true;
+
+      const checkStart = deliveryDate || today();
+      const checkEnd = returnDate || checkStart;
+      const rStart = (r.startDate || "").slice(0, 10);
+      const rEnd = (r.endDate || "").slice(0, 10);
+
+      if (checkStart && checkEnd && rStart && rEnd) {
+        return checkStart <= rEnd && checkEnd >= rStart;
+      }
+      return true;
+    });
+
+    return hasBooking;
+  }
+
 
   function handleSignatureUpload(file: File | undefined) {
     if (!file) return;
@@ -327,36 +375,10 @@ export function NewRentalDialog({
       `Confirm amount submitted by customer:\n\nTotal Rent: ${formatCurrencyINR(piecesTotal)}\nDiscount: ${formatCurrencyINR(parsed.data.discount)}\nSecurity deposit: ${formatCurrencyINR(parsed.data.securityAmount)}\nTotal bill: ${formatCurrencyINR(netTotal)}\nAmount paid: ${formatCurrencyINR(totalPaid)}\nBalance: ${formatCurrencyINR(balanceDue)}`,
     );
     if (!confirmedPayment) return;
-
     for (const p of parsed.data.pieces) {
-      const newStart = new Date(p.deliveryDate);
-      newStart.setHours(0, 0, 0, 0);
-      const newEnd = new Date(p.endDate);
-      newEnd.setHours(0, 0, 0, 0);
-
-      const overlappingRentals = rentals.filter((r) => {
-        if (r.itemId !== p.itemId) return false;
-        if (r.status === "returned") return false;
-
-        const existingStart = new Date(r.startDate || r.deliveryDate || "");
-        existingStart.setHours(0, 0, 0, 0);
-        const existingEnd = new Date(r.endDate || "");
-        existingEnd.setHours(0, 0, 0, 0);
-
-        return newStart.getTime() <= existingEnd.getTime() && newEnd.getTime() >= existingStart.getTime();
-      });
-
-      const item = items.find((i) => i.id === p.itemId);
-      if (isSafaItem(item)) {
-        const bookedQty = overlappingRentals.reduce((sum, r) => sum + (Number((r as any).quantity) || 1), 0);
-        const stockQty = Number((item as any)?.quantity) || 1;
-        if (bookedQty + p.quantity > stockQty) {
-          toast.error(`Only ${Math.max(0, stockQty - bookedQty)} Safa available for selected dates.`);
-          return;
-        }
-      } else if (overlappingRentals.length > 0) {
-        const overlappingRental = overlappingRentals[0];
-        toast.error(`"${item?.name || p.itemId}" is already booked from ${formatDate(overlappingRental.startDate)} to ${formatDate(overlappingRental.endDate)}.`);
+      const item = items.find((i) => i.id === p.itemId || i.customId === p.itemNo);
+      if (item && isItemAlreadyBooked(item, p.deliveryDate, p.endDate)) {
+        toast.error(`"${item.name || p.itemNo}" is already booked.`);
         return;
       }
     }
@@ -584,6 +606,10 @@ export function NewRentalDialog({
                             return;
                           }
                           const item = items.find((i) => i.id === v);
+                          if (item && isItemAlreadyBooked(item, piece.deliveryDate, piece.endDate)) {
+                            toast.error(`"${item.name}" is already booked and cannot be selected.`);
+                            return;
+                          }
                           setForm(f => {
                             const newPieces = [...f.pieces];
                             newPieces[index] = { ...newPieces[index], itemId: v, itemNo: item?.id ?? "", rate: item?.pricePerDay ?? 0, quantity: isSafaItem(item) ? Math.max(1, newPieces[index].quantity || 1) : 1 };
@@ -595,11 +621,23 @@ export function NewRentalDialog({
                           <SelectValue placeholder="Choose a piece..." />
                         </SelectTrigger>
                         <SelectContent>
-                          {items.map((i) => (
-                            <SelectItem key={i.id} value={i.id}>
-                              {i.name} - {formatCurrencyINR(i.pricePerDay)}
-                            </SelectItem>
-                          ))}
+                          {items.map((i) => {
+                            const booked = isItemAlreadyBooked(i, piece.deliveryDate, piece.endDate);
+                            return (
+                              <SelectItem key={i.id} value={i.id} disabled={booked}>
+                                <div className="flex items-center justify-between w-full gap-2">
+                                  <span className={booked ? "line-through opacity-60" : ""}>
+                                    {i.name} - {formatCurrencyINR(i.pricePerDay)}
+                                  </span>
+                                  {booked && (
+                                    <span className="text-[10px] bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400 px-1.5 py-0.5 rounded font-semibold ml-2 shrink-0">
+                                      Booked
+                                    </span>
+                                  )}
+                                </div>
+                              </SelectItem>
+                            );
+                          })}
                         </SelectContent>
                       </Select>
                     </div>
@@ -615,6 +653,10 @@ export function NewRentalDialog({
                             // Try to auto-fill if item exists
                             const found = items.find(i => i.customId === itemNo);
                             if (found) {
+                              if (isItemAlreadyBooked(found, piece.deliveryDate, piece.endDate)) {
+                                toast.error(`Item "${found.name}" (${itemNo}) is already booked.`);
+                                return { ...f, pieces: newPieces };
+                              }
                               newPieces[index] = {
                                 ...newPieces[index],
                                 itemId: found.id,

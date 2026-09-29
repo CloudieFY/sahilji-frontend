@@ -286,7 +286,7 @@ export default function RentalsPage() {
                       {formatDate(r.startDate)} to {formatDate(r.endDate)}{bill.rentals.length > 1 ? ` · ${bill.rentals.length} items` : ""}
                       </p>
                     </div>
-                    <p className="font-display text-xl text-gold shrink-0">
+                    <p className="font-sans font-bold text-lg text-gold shrink-0">
                       {formatCurrencyINR(bill.rentals.reduce((sum, entry) => sum + (Number(entry.total) || 0), 0))}
                     </p>
                   </div>
@@ -423,10 +423,10 @@ export default function RentalsPage() {
                     {formatDate(r.startDate)}
                     <br />to {formatDate(r.endDate)}
                   </TableCell>
-                  <TableCell className="text-right font-display text-lg whitespace-nowrap text-gold">
+                  <TableCell className="text-right font-sans font-bold text-base whitespace-nowrap text-gold">
                     {formatCurrencyINR(bill.rentals.reduce((sum, entry) => sum + (Number(entry.total) || 0), 0))}
                   </TableCell>
-                  <TableCell className={`text-right font-display text-lg whitespace-nowrap ${dueAmount > 0 ? "text-destructive" : "text-emerald-500"}`}>
+                  <TableCell className={`text-right font-sans font-bold text-base whitespace-nowrap ${dueAmount > 0 ? "text-destructive" : "text-emerald-500"}`}>
                     {formatCurrencyINR(dueAmount)}
                   </TableCell>
                   <TableCell className="text-right">
