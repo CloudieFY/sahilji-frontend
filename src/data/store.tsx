@@ -39,6 +39,23 @@ interface StoreState {
   updateCustomer: (id: string, data: Partial<Customer>) => Promise<Customer>;
   deleteCustomer: (id: string) => Promise<void>;
   deleteRental: (id: string, billNo?: string) => Promise<void>;
+  cancelRental: (
+    id: string,
+    data: {
+      cancellationCharge?: number;
+      cancellationReason?: string;
+      refundPaid?: boolean;
+      cancelEntireBill?: boolean;
+    }
+  ) => Promise<{
+    message: string;
+    billNo: string;
+    cancellationCharge: number;
+    totalPaid: number;
+    refundAmount: number;
+    refundPaid: boolean;
+    cancelledCount: number;
+  }>;
   updateRental: (id: string, data: Partial<Rental>) => Promise<Rental>;
   updateItem: (id: string, data: Partial<Item>) => Promise<Item>;
   getItem: (id: string) => Item | undefined;
@@ -266,6 +283,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setItems((prev) => prev.map((i) => (i.id === transformedItem.id ? transformedItem : i)));
         }
         return transformed;
+      },
+      cancelRental: async (id, data) => {
+        console.info("[store] cancelRental started", { id, data });
+        const res = await rentalsApi.cancel(id, data);
+        console.info("[store] cancelRental backend success", res);
+        await refreshData();
+        return res;
       },
       getItem: (id) => items.find((i) => i.id === id),
       getCustomer: (id) => customers.find((c) => c.id === id),

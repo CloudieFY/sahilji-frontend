@@ -56,7 +56,7 @@ const schema = z
     drycleanAdminConfirmedBy: z.string().optional(),
     remark: z.string().trim().max(300).optional(),
     signature: z.string().optional(),
-    status: z.enum(["active", "upcoming", "returned", "overdue"]),
+    status: z.enum(["active", "upcoming", "returned", "overdue", "cancelled"]),
     ownerNumber: z.string().optional(),
     instaId: z.string().optional(),
     billMakingDate: z.string().optional(),
@@ -295,6 +295,7 @@ export function EditRentalDialog({
   const [form, setForm] = useState(() => createFormState(rental));
 
   const [billNoLoading, setBillNoLoading] = useState(false);
+  const [securityRefundInput, setSecurityRefundInput] = useState<string>("");
 
   const relatedRentals = useMemo(() => {
     if (rental.billNo) {
@@ -506,6 +507,26 @@ const rentalQuantity = isSafaRental ? Math.max(1, Number(form.quantity) || 1) : 
   const aggTotal = computedPieces.aggTotal;
   const aggFinalDue = computedPieces.aggFinalDue;
 
+  useEffect(() => {
+    if (open) {
+      setSecurityRefundInput(String(Math.max(0, aggSecurity - (form.securityRefundDeduction || 0))));
+    }
+  }, [open, aggSecurity]);
+
+  const refundInputNumber = parseFloat(securityRefundInput);
+  const isRefundOverMax = !isNaN(refundInputNumber) && refundInputNumber > aggSecurity;
+  const isRefundNegative = !isNaN(refundInputNumber) && refundInputNumber < 0;
+
+  const noteTrimmed = (form.securityRefundNote || "").trim();
+  const noteNum = parseFloat(noteTrimmed);
+  const isNoteNumericOverMax = !isNaN(noteNum) && /^\d+$/.test(noteTrimmed) && noteNum > aggSecurity;
+
+  const isRefundInvalid =
+    isRefundOverMax ||
+    isRefundNegative ||
+    isNoteNumericOverMax ||
+    (securityRefundInput.trim() !== "" && isNaN(refundInputNumber));
+
 
   function renderThermalBody() {
     let invoiceTitle = "INVOICE";
@@ -513,6 +534,7 @@ const rentalQuantity = isSafaRental ? Math.max(1, Number(form.quantity) || 1) : 
     else if (form.status === "active") invoiceTitle = "DELIVERY INVOICE";
     else if (form.status === "returned") invoiceTitle = "FINAL INVOICE";
     else if (form.status === "overdue") invoiceTitle = "OVERDUE FINAL BILL";
+    else if (form.status === "cancelled") invoiceTitle = "CANCELLATION INVOICE";
 
     const thermalPiecesHtml = piecesData.map(({ r, rItem, rDeliveryDate, rEndDate, rDeliveryTime, rDeliveryTimePeriod, rEndTime, rEndTimePeriod, rRate, rQuantity, rLostQuantity }) => `
       ${rItem?.image ? `<div style="text-align: center; margin-bottom: 6px;"><img src="${rItem.image}" style="max-height: 80px; max-width: 100%; border-radius: 4px; object-fit: cover;" /></div>` : ""}
@@ -1365,37 +1387,86 @@ Thank you for choosing ARIHANT COLLECTION !`;
               <h3 className="text-xs font-semibold uppercase tracking-wider text-amber-600 border-b border-amber-500/20 pb-2">Security Refund</h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="grid gap-2 sm:col-span-1">
-                  <Label htmlFor="securityRefundAmount">Amount to Refund (INR)</Label>
+                  <div className="flex justify-between items-center">
+                    <Label htmlFor="securityRefundAmount">Amount to Refund (INR) / रिफंड राशि</Label>
+                    <span className="text-[10px] text-muted-foreground font-mono">Max: {formatCurrencyINR(aggSecurity)}</span>
+                  </div>
                   <Input
                     id="securityRefundAmount"
                     type="number"
                     min={0}
-                    max={aggSecurity}
-                    value={aggSecurity - (form.securityRefundDeduction || 0)}
+                    value={securityRefundInput}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => {
-                      const refundAmount = Number(e.target.value);
-                      const deduction = Math.max(0, aggSecurity - refundAmount);
-                      setForm(c => ({ ...c, securityRefundDeduction: deduction }));
+                      const rawVal = e.target.value;
+                      setSecurityRefundInput(rawVal);
+                      const numVal = parseFloat(rawVal);
+                      if (!isNaN(numVal) && numVal >= 0 && numVal <= aggSecurity) {
+                        const deduction = Math.max(0, aggSecurity - numVal);
+                        setForm((c) => ({ ...c, securityRefundDeduction: deduction }));
+                      }
                     }}
+                    className={isRefundOverMax ? "border-destructive text-destructive focus-visible:ring-destructive font-semibold" : ""}
                   />
+                  {isRefundOverMax && (
+                    <p className="text-[11px] text-destructive font-medium leading-tight">
+                      ❌ Amount is not correct! Refund cannot exceed total security deposit ({formatCurrencyINR(aggSecurity)}).
+                    </p>
+                  )}
+                  {isRefundNegative && (
+                    <p className="text-[11px] text-destructive font-medium leading-tight">
+                      ❌ Amount is not correct! Refund cannot be negative.
+                    </p>
+                  )}
+                  {!isRefundInvalid && !isNaN(refundInputNumber) && refundInputNumber < aggSecurity && (
+                    <p className="text-[11px] text-amber-700 font-medium">
+                      Damage Deduction: {formatCurrencyINR(aggSecurity - refundInputNumber)}
+                    </p>
+                  )}
                 </div>
                 <div className="grid gap-2 sm:col-span-2">
-                  <Label htmlFor="securityRefundNote">Refund Notes</Label>
+                  <Label htmlFor="securityRefundNote">Deduction Reason / Notes (रिमार्क / कटौती का कारण - Optional)</Label>
                   <Textarea
                     id="securityRefundNote"
                     value={form.securityRefundNote}
                     onChange={(e) => setForm(c => ({ ...c, securityRefundNote: e.target.value }))}
-                    placeholder="Reason for deduction..."
+                    placeholder="Reason for deduction (Optional). Refund amount should be entered in left box..."
                     rows={2}
+                    className={isNoteNumericOverMax ? "border-destructive text-destructive focus-visible:ring-destructive" : ""}
                   />
+                  {isNoteNumericOverMax && (
+                    <p className="text-[11px] text-destructive font-medium leading-tight">
+                      ❌ The amount is not correct! You entered ₹{noteNum.toLocaleString('en-IN')}, which exceeds total security deposit ({formatCurrencyINR(aggSecurity)}). Please enter the refund amount in the "Amount to Refund" box on the left.
+                    </p>
+                  )}
                 </div>
               </div>
               <Button
                 type="button"
+                disabled={isRefundInvalid || aggFinalDue > 0 || loading}
+                className={(isRefundOverMax || isNoteNumericOverMax) ? "opacity-50 cursor-not-allowed" : ""}
                 onClick={async () => {
+                  if (isNoteNumericOverMax) {
+                    toast.error("The amount is not correct! Please enter the refund amount in 'Amount to Refund' box, not in notes.");
+                    return;
+                  }
+
+                  const refundAmount = parseFloat(securityRefundInput);
+                  if (isNaN(refundAmount) || refundAmount < 0) {
+                    toast.error("The amount is not correct! Please enter a valid refund amount.");
+                    return;
+                  }
+
+                  if (refundAmount > aggSecurity) {
+                    toast.error("The amount is not correct! Cannot refund more than security deposit.", {
+                      description: `Maximum refundable amount is ${formatCurrencyINR(aggSecurity)}. You entered ${formatCurrencyINR(refundAmount)}.`,
+                    });
+                    return;
+                  }
+
                   const totalSecurity = aggSecurity;
-                  const deduction = form.securityRefundDeduction ?? 0;
-                  const finalRefund = Math.max(0, totalSecurity - deduction);
+                  const deduction = Math.max(0, totalSecurity - refundAmount);
+                  const finalRefund = refundAmount;
 
                   if (aggFinalDue > 0) {
                     toast.error("Cannot refund security deposit.", {

@@ -40,7 +40,7 @@ const schema = z
     discount: z.number().min(0, "Discount cannot be negative"),
     securityAmount: z.number().min(0, "Security amount cannot be negative"),
     signature: z.string().optional(),
-    status: z.enum(["active", "upcoming", "returned", "overdue"]),
+    status: z.enum(["active", "upcoming", "returned", "overdue", "cancelled"]),
     pieces: z.array(
       z.object({
         id: z.string(),

@@ -77,11 +77,16 @@ export interface Rental {
   securityAmount: number;
   securityReturned?: boolean;
   securityReturnedAt?: string;
+  cancellationCharge?: number;
+  cancellationReason?: string;
+  cancelledAt?: string;
+  refundAmount?: number;
+  refundPaid?: boolean;
   signature?: string;
   returnedAt?: string;
   penalty: number;
   total: number;
-  status: 'active' | 'upcoming' | 'returned' | 'overdue';
+  status: 'active' | 'upcoming' | 'returned' | 'overdue' | 'cancelled';
   createdAt: string;
   updatedAt: string;
 }
@@ -284,6 +289,28 @@ export const rentalsApi = {
       : `${API_BASE}/rentals/${id}`;
     return apiRequest<{ message: string }>(url, { method: 'DELETE' });
   },
+  cancel: (
+    id: string,
+    data: {
+      cancellationCharge?: number;
+      cancellationReason?: string;
+      refundPaid?: boolean;
+      cancelEntireBill?: boolean;
+    }
+  ) =>
+    apiRequest<{
+      message: string;
+      billNo: string;
+      cancellationCharge: number;
+      totalPaid: number;
+      refundAmount: number;
+      refundPaid: boolean;
+      cancelledCount: number;
+    }>(`${API_BASE}/rentals/${id}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
 };
 
 // Auth API

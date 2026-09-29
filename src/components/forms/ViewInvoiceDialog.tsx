@@ -11,10 +11,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Eye, Printer, Download, Send, Receipt, IndianRupee, PlusCircle, Loader2 } from "lucide-react";
+import { Eye, Printer, Download, Send, Receipt, IndianRupee, PlusCircle, Loader2, Ban } from "lucide-react";
 import { useStore } from "@/data/store";
 import { formatCurrencyINR, getBillRepresentative } from "@/lib/utils";
 import { printInvoiceHtml, getPoliciesHtml, getPoliciesColumnsHtml } from "@/lib/invoiceTemplate";
+import { CancelOrderDialog } from "./CancelOrderDialog";
 import type { Rental } from "@/data/mock";
 
 function formatDate(dateStr: string) {
@@ -109,6 +110,7 @@ export function ViewInvoiceDialog({
   else if (status === "active") invoiceTitle = "Delivery Invoice";
   else if (status === "returned") invoiceTitle = "Final Invoice";
   else if (status === "overdue") invoiceTitle = "Overdue Final Bill";
+  else if (status === "cancelled") invoiceTitle = "Cancellation Receipt / Invoice";
 
   // Determine user role for payment permission
   const userRole =
@@ -280,40 +282,59 @@ export function ViewInvoiceDialog({
         <!-- Financial Summary -->
         <div style="display: flex; justify-content: flex-end; margin-bottom: 8px; position: relative; z-index: 1;">
           <div style="width: 270px; font-size: 10px; border-top: 1px solid #e2e8f0; padding-top: 4px;">
-            <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #334155;">
-              <span>Total Rent:</span>
-              <span style="font-weight: 600;">${formatCurrencyINR(aggSubtotal)}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #334155;">
-              <span>Security Deposit:</span>
-              <span style="font-weight: 600;">${formatCurrencyINR(aggSecurity)}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #047857;">
-              <span>Discount:</span>
-              <span style="font-weight: 600;">-${formatCurrencyINR(aggDiscount)}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; padding: 3px 0; border-top: 1px solid #cbd5e1; font-weight: bold; color: #0f172a; margin-top: 2px;">
-              <span>Total Bill:</span>
-              <span>${formatCurrencyINR(aggTotal)}</span>
-            </div>
-            ${
-              billPayments.length > 0
-                ? `
-              <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 3px; padding: 3px 5px; margin: 3px 0;">
-                <div style="font-size: 8.5px; font-weight: bold; text-transform: uppercase; color: #166534; margin-bottom: 1px;">Payments Received</div>
-                ${billPayments.map((p: { date: string; amount: number }) => `<div style="display: flex; justify-content: space-between; font-size: 9px; color: #14532d;"><span>Paid on ${formatDate(p.date)}</span><span style="font-weight: bold;">-${formatCurrencyINR(p.amount)}</span></div>`).join("")}
+            ${status === "cancelled" ? `
+              <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #e11d48; font-weight: bold;">
+                <span>Status:</span>
+                <span>CANCELLED</span>
               </div>
-            `
-                : ""
-            }
-            <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #b45309;">
-              <span>Security Refund:</span>
-              <span style="font-weight: 600;">${formatCurrencyINR(aggSecurityRefundDue)}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; padding: 4px 0; border-top: 2px solid #0f172a; font-size: 12px; font-weight: bold; color: #d97706; margin-top: 2px;">
-              <span>Balance Due:</span>
-              <span>${formatCurrencyINR(aggFinalDue)}</span>
-            </div>
+              <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #334155;">
+                <span>Total Advance Paid:</span>
+                <span style="font-weight: 600;">${formatCurrencyINR(aggPaid)}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #e11d48;">
+                <span>Cancellation Charges:</span>
+                <span style="font-weight: 600;">-${formatCurrencyINR((mainBillRental as any).cancellationCharge || 0)}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 4px 0; border-top: 2px solid #059669; font-size: 11.5px; font-weight: bold; color: #059669; margin-top: 2px;">
+                <span>Refund ${(mainBillRental as any).refundPaid ? "Returned" : "Due"}:</span>
+                <span>${formatCurrencyINR((mainBillRental as any).refundAmount ?? Math.max(0, aggPaid - ((mainBillRental as any).cancellationCharge || 0)))}</span>
+              </div>
+            ` : `
+              <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #334155;">
+                <span>Total Rent:</span>
+                <span style="font-weight: 600;">${formatCurrencyINR(aggSubtotal)}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #334155;">
+                <span>Security Deposit:</span>
+                <span style="font-weight: 600;">${formatCurrencyINR(aggSecurity)}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #047857;">
+                <span>Discount:</span>
+                <span style="font-weight: 600;">-${formatCurrencyINR(aggDiscount)}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 3px 0; border-top: 1px solid #cbd5e1; font-weight: bold; color: #0f172a; margin-top: 2px;">
+                <span>Total Bill:</span>
+                <span>${formatCurrencyINR(aggTotal)}</span>
+              </div>
+              ${
+                billPayments.length > 0
+                  ? `
+                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 3px; padding: 3px 5px; margin: 3px 0;">
+                  <div style="font-size: 8.5px; font-weight: bold; text-transform: uppercase; color: #166534; margin-bottom: 1px;">Payments Received</div>
+                  ${billPayments.map((p: { date: string; amount: number }) => `<div style="display: flex; justify-content: space-between; font-size: 9px; color: #14532d;"><span>Paid on ${formatDate(p.date)}</span><span style="font-weight: bold;">-${formatCurrencyINR(p.amount)}</span></div>`).join("")}
+                </div>
+              `
+                  : ""
+              }
+              <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #b45309;">
+                <span>Security Refund:</span>
+                <span style="font-weight: 600;">${formatCurrencyINR(aggSecurityRefundDue)}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 4px 0; border-top: 2px solid #0f172a; font-size: 12px; font-weight: bold; color: #d97706; margin-top: 2px;">
+                <span>Balance Due:</span>
+                <span>${formatCurrencyINR(aggFinalDue)}</span>
+              </div>
+            `}
           </div>
         </div>
 
@@ -585,6 +606,22 @@ Thank you for choosing ARIHANT COLLECTION!`;
               <Send className="h-3.5 w-3.5" />
               WhatsApp
             </Button>
+            {status !== "cancelled" && status !== "returned" && (
+              <CancelOrderDialog
+                rental={mainBillRental}
+                trigger={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs gap-1.5 border-rose-500/30 text-rose-500 hover:bg-rose-500/10 hover:text-rose-600"
+                  >
+                    <Ban className="h-3.5 w-3.5" />
+                    Cancel Order
+                  </Button>
+                }
+              />
+            )}
           </div>
         </DialogHeader>
 
@@ -748,54 +785,94 @@ Thank you for choosing ARIHANT COLLECTION!`;
             {/* Financial Summary */}
             <div className="flex justify-end">
               <div className="w-full sm:w-1/2 space-y-1.5 text-xs text-slate-700 border-t border-slate-200 pt-3">
-                <div className="flex justify-between">
-                  <span>Total Rent:</span>
-                  <span className="font-semibold">{formatCurrencyINR(aggSubtotal)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Security Deposit:</span>
-                  <span className="font-semibold">{formatCurrencyINR(aggSecurity)}</span>
-                </div>
-                <div className="flex justify-between text-emerald-700">
-                  <span>Discount:</span>
-                  <span className="font-semibold">-{formatCurrencyINR(aggDiscount)}</span>
-                </div>
-
-                <div className="flex justify-between font-bold border-t border-slate-300 pt-1 text-slate-900">
-                  <span>Total Bill:</span>
-                  <span>{formatCurrencyINR(aggTotal)}</span>
-                </div>
-
-                {billPayments.length > 0 && (
-                  <div className="bg-emerald-50 p-2 rounded border border-emerald-100 space-y-1 my-1">
-                    <p className="text-[10px] font-bold uppercase text-emerald-800">
-                      Payments Received
-                    </p>
-                    {billPayments.map((p, idx) => (
-                      <div key={idx} className="flex justify-between text-[11px] text-emerald-900">
-                        <span>Paid on {formatDate(p.date)}:</span>
-                        <span className="font-bold">-{formatCurrencyINR(p.amount)}</span>
+                {status === "cancelled" ? (
+                  <>
+                    <div className="flex justify-between font-bold text-rose-600">
+                      <span>Status:</span>
+                      <span>CANCELLED</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Advance Received:</span>
+                      <span className="font-semibold">{formatCurrencyINR(aggPaid)}</span>
+                    </div>
+                    <div className="flex justify-between text-rose-600">
+                      <span>Cancellation Charges Deducted:</span>
+                      <span className="font-semibold">
+                        -{formatCurrencyINR((mainBillRental as any).cancellationCharge || 0)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm font-bold border-t-2 border-emerald-600 pt-2 text-emerald-600">
+                      <span>
+                        Refund {(mainBillRental as any).refundPaid ? "Returned" : "Due"}:
+                      </span>
+                      <span>
+                        {formatCurrencyINR(
+                          (mainBillRental as any).refundAmount ??
+                            Math.max(
+                              0,
+                              aggPaid - ((mainBillRental as any).cancellationCharge || 0),
+                            ),
+                        )}
+                      </span>
+                    </div>
+                    {(mainBillRental as any).cancellationReason && (
+                      <div className="text-[11px] text-slate-500 bg-slate-50 p-2 rounded mt-2 border border-slate-100">
+                        <strong>Reason:</strong> {(mainBillRental as any).cancellationReason}
                       </div>
-                    ))}
-                  </div>
-                )}
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="flex justify-between">
+                      <span>Total Rent:</span>
+                      <span className="font-semibold">{formatCurrencyINR(aggSubtotal)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Security Deposit:</span>
+                      <span className="font-semibold">{formatCurrencyINR(aggSecurity)}</span>
+                    </div>
+                    <div className="flex justify-between text-emerald-700">
+                      <span>Discount:</span>
+                      <span className="font-semibold">-{formatCurrencyINR(aggDiscount)}</span>
+                    </div>
 
-                {aggSecurityRefundDue > 0 && (
-                  <div className="flex justify-between text-amber-700">
-                    <span>Security Refund Due:</span>
-                    <span className="font-semibold">{formatCurrencyINR(aggSecurityRefundDue)}</span>
-                  </div>
-                )}
+                    <div className="flex justify-between font-bold border-t border-slate-300 pt-1 text-slate-900">
+                      <span>Total Bill:</span>
+                      <span>{formatCurrencyINR(aggTotal)}</span>
+                    </div>
 
-                <div className="flex justify-between text-sm font-bold border-t-2 border-slate-900 pt-2 text-amber-600">
-                  <span>Rental Balance Due:</span>
-                  <span>{formatCurrencyINR(aggFinalDue)}</span>
-                </div>
+                    {billPayments.length > 0 && (
+                      <div className="bg-emerald-50 p-2 rounded border border-emerald-100 space-y-1 my-1">
+                        <p className="text-[10px] font-bold uppercase text-emerald-800">
+                          Payments Received
+                        </p>
+                        {billPayments.map((p, idx) => (
+                          <div key={idx} className="flex justify-between text-[11px] text-emerald-900">
+                            <span>Paid on {formatDate(p.date)}:</span>
+                            <span className="font-bold">-{formatCurrencyINR(p.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {aggSecurityRefundDue > 0 && (
+                      <div className="flex justify-between text-amber-700">
+                        <span>Security Refund Due:</span>
+                        <span className="font-semibold">{formatCurrencyINR(aggSecurityRefundDue)}</span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between text-sm font-bold border-t-2 border-slate-900 pt-2 text-amber-600">
+                      <span>Rental Balance Due:</span>
+                      <span>{formatCurrencyINR(aggFinalDue)}</span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
             {/* ── Payment Collection Section ── */}
-            {canCollectPayment && aggFinalDue > 0 && (
+            {canCollectPayment && aggFinalDue > 0 && status !== "cancelled" && (
               <div className="mt-4 border border-emerald-200 rounded-lg bg-emerald-50/60 p-4 space-y-3">
                 <div className="flex items-center gap-2">
                   <IndianRupee className="w-4 h-4 text-emerald-700" />

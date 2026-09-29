@@ -12,6 +12,7 @@ const rentalStyles: Record<RentalStatus, string> = {
   upcoming: "bg-emerald/15 text-emerald border-emerald/30",
   returned: "bg-muted text-muted-foreground border-border",
   overdue: "bg-destructive/15 text-destructive border-destructive/40",
+  cancelled: "bg-rose-500/15 text-rose-500 border-rose-500/30",
 };
 
 export function StatusBadge({

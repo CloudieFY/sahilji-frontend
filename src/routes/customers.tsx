@@ -3,11 +3,21 @@ import { useMemo, useState, useEffect } from "react";
 import { AppShell } from "@/components/AppShell";
 import { useStore } from "@/data/store";
 import { formatCurrencyINR } from "@/lib/utils";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Mail, Phone, Plus, Trash2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Mail, Phone, Plus, Trash2, Search, Edit2, Users, ShoppingBag } from "lucide-react";
 import { AddCustomerDialog } from "@/components/forms/AddCustomerDialog";
+import { EditCustomerDialog } from "@/components/forms/EditCustomerDialog";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -23,13 +33,13 @@ import {
 
 // Custom lightweight navigation hook
 const useNavigate = () => {
-  return (options: { to: string, params?: any }) => {
+  return (options: { to: string; params?: any }) => {
     let path = options.to;
     if (options.params?.customerId) {
-      path = path.replace('$customerId', options.params.customerId);
+      path = path.replace("$customerId", options.params.customerId);
     }
-    window.history.pushState({}, '', path);
-    window.dispatchEvent(new PopStateEvent('popstate'));
+    window.history.pushState({}, "", path);
+    window.dispatchEvent(new PopStateEvent("popstate"));
   };
 };
 
@@ -60,7 +70,8 @@ export default function CustomersPage() {
   }, []);
 
   const { customers, rentals, loading, searchQuery, deleteCustomer } = useStore();
-  const query = searchQuery.trim().toLowerCase();
+  const [localSearch, setLocalSearch] = useState("");
+  const query = (localSearch || searchQuery || "").trim().toLowerCase();
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -78,13 +89,16 @@ export default function CustomersPage() {
   }
 
   const customersWithLiveStats = useMemo(() => {
-    return customers.map(c => {
-      const customerRentals = rentals.filter(r => r.customerId === c.id);
-      const liveTotalSpent = customerRentals.reduce((sum, r) => sum + (r.total || 0) + (r.penalty || 0), 0);
+    return customers.map((c) => {
+      const customerRentals = rentals.filter((r) => r.customerId === c.id);
+      const liveTotalSpent = customerRentals.reduce(
+        (sum, r) => sum + (r.total || 0) + (r.penalty || 0),
+        0,
+      );
       return {
         ...c,
         rentals: customerRentals.length,
-        totalSpent: liveTotalSpent
+        totalSpent: liveTotalSpent,
       };
     });
   }, [customers, rentals]);
@@ -95,14 +109,21 @@ export default function CustomersPage() {
       c.name,
       c.email,
       c.phone,
+      c.secondaryPhone,
       c.tier,
       String(c.totalSpent),
       String(c.rentals),
     ]
+      .filter(Boolean)
       .join(" ")
       .toLowerCase();
     return !query || searchable.includes(query);
   });
+
+  const totalClients = customers.length;
+  const platinumCount = customers.filter((c) => c.tier === "Platinum").length;
+  const totalLifetimeSpent = customersWithLiveStats.reduce((sum, c) => sum + c.totalSpent, 0);
+  const activeRentersCount = customersWithLiveStats.filter((c) => c.rentals > 0).length;
 
   if (loading) {
     return (
@@ -113,100 +134,226 @@ export default function CustomersPage() {
       </AppShell>
     );
   }
+
   return (
     <AppShell>
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6 sm:mb-8">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6 sm:mb-8">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.4em] text-gold">Clientele</p>
-          <h1 className="mt-2 font-display text-3xl sm:text-4xl">Clients</h1>
+          <p className="text-[10px] uppercase tracking-[0.4em] text-gold font-medium">Clientele</p>
+          <h1 className="mt-1 font-serif text-3xl sm:text-4xl text-foreground font-semibold">Clients</h1>
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-            {customers.length} members - {customers.filter((c) => c.tier === "Platinum").length} Platinum
+            {totalClients} members · {platinumCount} Platinum · {activeRentersCount} Active Renters
           </p>
         </div>
-        <AddCustomerDialog
-          trigger={
-            <Button className="bg-gold text-gold-foreground hover:bg-gold/90 self-start sm:self-auto">
-              <Plus className="h-4 w-4 mr-1.5" /> Add Client
-            </Button>
-          }
-        />
+
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          {/* Search bar */}
+          <div className="relative min-w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Search by name, phone, email, ID..."
+              value={localSearch}
+              onChange={(e) => setLocalSearch(e.target.value)}
+              className="pl-9 h-9 text-xs bg-background/50 border-border"
+            />
+          </div>
+
+          <AddCustomerDialog
+            trigger={
+              <Button className="bg-gold text-gold-foreground hover:bg-gold/90 h-9 text-xs font-medium">
+                <Plus className="h-4 w-4 mr-1.5" /> Add Client
+              </Button>
+            }
+          />
+        </div>
       </div>
 
-      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
-        {filteredCustomers.length === 0 && (
-          <Card className="glass-panel p-6 text-sm text-muted-foreground sm:col-span-2 xl:col-span-3">
-            No clients match your search.
-          </Card>
-        )}
-        {filteredCustomers.map((c) => (
-              <Card
-                key={c.id}
-                className="glass-panel transition-shadow"
-              >
-            <CardContent className="p-6 relative">
-              <div className="flex items-start gap-4">
-                <Avatar className="h-14 w-14 border border-gold/40">
-                  <AvatarFallback className="bg-secondary font-display text-lg">
-                    {initials(c.name)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-display text-xl leading-tight">{c.name}</h3>
-                  <p className="text-[11px] uppercase tracking-[0.25em] text-muted-foreground mt-0.5">
-                    {c.id} - since {c.joined.slice(0, 4)}
-                  </p>
-                </div>
-                <span
-                  className={`text-[10px] uppercase tracking-[0.2em] px-2.5 py-1 rounded-full border ${tierStyle[c.tier]}`}
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <Card className="glass-panel p-4 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-medium">
+              Total Clients
+            </p>
+            <p className="text-2xl font-bold font-sans text-foreground mt-1">{totalClients}</p>
+          </div>
+          <div className="h-10 w-10 rounded-full bg-secondary/60 flex items-center justify-center text-muted-foreground border border-border">
+            <Users className="h-5 w-5" />
+          </div>
+        </Card>
+
+        <Card className="glass-panel p-4 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-medium">
+              Active Renters
+            </p>
+            <p className="text-2xl font-bold font-sans text-foreground mt-1">{activeRentersCount}</p>
+          </div>
+          <div className="h-10 w-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500 border border-emerald-500/20">
+            <ShoppingBag className="h-5 w-5" />
+          </div>
+        </Card>
+
+        <Card className="glass-panel p-4 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-medium">
+              Total Lifetime Spent
+            </p>
+            <p className="text-2xl font-bold font-sans text-gold mt-1">
+              {formatCurrencyINR(totalLifetimeSpent)}
+            </p>
+          </div>
+          <div className="h-10 w-10 rounded-full bg-gold/10 flex items-center justify-center text-gold border border-gold/20">
+            <span className="font-bold text-sm font-sans">₹</span>
+          </div>
+        </Card>
+      </div>
+
+      {/* Column & Row Table */}
+      <Card className="glass-panel overflow-hidden p-0">
+        <div className="overflow-x-auto">
+          <Table className="w-full min-w-180">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent border-border bg-secondary/30">
+                <TableHead className="text-[10px] uppercase tracking-[0.25em] w-24">
+                  Client ID
+                </TableHead>
+                <TableHead className="text-[10px] uppercase tracking-[0.25em]">
+                  Client Name
+                </TableHead>
+                <TableHead className="text-[10px] uppercase tracking-[0.25em]">
+                  Contact
+                </TableHead>
+                <TableHead className="text-[10px] uppercase tracking-[0.25em]">
+                  Tier
+                </TableHead>
+                <TableHead className="text-[10px] uppercase tracking-[0.25em] text-right">
+                  Rentals
+                </TableHead>
+                <TableHead className="text-[10px] uppercase tracking-[0.25em] text-right">
+                  Lifetime Spent
+                </TableHead>
+                <TableHead className="text-[10px] uppercase tracking-[0.25em] text-right w-28">
+                  Action
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredCustomers.length === 0 && (
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableCell
+                    colSpan={7}
+                    className="py-12 text-center text-sm text-muted-foreground"
+                  >
+                    No clients match your search.
+                  </TableCell>
+                </TableRow>
+              )}
+
+              {filteredCustomers.map((c) => (
+                <TableRow
+                  key={c.id}
+                  className="border-border hover:bg-secondary/30 transition-colors"
                 >
-                  {c.tier}
-                </span>
+                  {/* Client ID */}
+                  <TableCell className="font-mono text-xs text-muted-foreground font-medium">
+                    {c.id}
+                  </TableCell>
 
-                <DeleteCustomerDialog
-                  customerId={c.id}
-                  customerName={c.name}
-                  disabled={deletingId === c.id}
-                  onDelete={() => handleDelete(c.id, c.name)}
-                />
-              </div>
+                  {/* Client Name with Avatar */}
+                  <TableCell>
+                    <div className="flex items-center gap-3">
+                      <Avatar className="h-9 w-9 border border-gold/40 shrink-0">
+                        <AvatarFallback className="bg-secondary font-display text-xs text-foreground font-semibold">
+                          {initials(c.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">
+                          {c.name}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground truncate">
+                          Member since {c.joined ? c.joined.slice(0, 4) : "2026"}
+                        </p>
+                      </div>
+                    </div>
+                  </TableCell>
 
-              <div className="mt-5 space-y-1.5 text-xs text-muted-foreground">
-                {c.email && (
-                <div className="flex items-center gap-2">
-                  <Mail className="h-3.5 w-3.5" /> {c.email}
-                </div>
-              )}
-              <div className="flex items-center gap-2">
-                <Phone className="h-3.5 w-3.5" /> {c.phone}
-              </div>
-              {c.secondaryPhone && (
-                <div className="flex items-center gap-2">
-                  <Phone className="h-3.5 w-3.5" /> {c.secondaryPhone}
-                </div>
-              )}
-              </div>
+                  {/* Contact Info (Phone & Email) */}
+                  <TableCell>
+                    <div className="space-y-0.5 text-xs text-foreground">
+                      <div className="flex items-center gap-1.5 font-medium">
+                        <Phone className="h-3 w-3 text-muted-foreground shrink-0" />
+                        <span>{c.phone}</span>
+                        {c.secondaryPhone && (
+                          <span className="text-[11px] text-muted-foreground">
+                            / {c.secondaryPhone}
+                          </span>
+                        )}
+                      </div>
+                      {c.email && (
+                        <div className="flex items-center gap-1.5 text-muted-foreground text-[11px] truncate max-w-56">
+                          <Mail className="h-3 w-3 text-muted-foreground shrink-0" />
+                          <span className="truncate">{c.email}</span>
+                        </div>
+                      )}
+                    </div>
+                  </TableCell>
 
-              <div className="hairline mt-5" />
-              <div className="grid grid-cols-2 mt-4">
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                    Lifetime
-                  </p>
-                  <p className="font-sans font-bold text-2xl tracking-tight text-gold">
+                  {/* Tier Badge */}
+                  <TableCell>
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] uppercase tracking-[0.18em] border font-medium ${tierStyle[c.tier] || tierStyle.Standard}`}
+                    >
+                      {c.tier}
+                    </span>
+                  </TableCell>
+
+                  {/* Rentals Count */}
+                  <TableCell className="text-right font-sans font-bold text-sm text-foreground">
+                    {c.rentals}
+                  </TableCell>
+
+                  {/* Lifetime Spent */}
+                  <TableCell className="text-right font-sans font-bold text-sm text-gold whitespace-nowrap">
                     {formatCurrencyINR(c.totalSpent)}
-                  </p>
-                </div>
-                <div className="border-l border-border pl-4">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                    Rentals
-                  </p>
-                  <p className="font-sans font-bold text-2xl tracking-tight">{c.rentals}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+                  </TableCell>
+
+                  {/* Action Buttons */}
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <EditCustomerDialog
+                        customer={c}
+                        trigger={
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="outline"
+                            className="h-8 w-8 border-border bg-transparent hover:bg-secondary/40 text-muted-foreground hover:text-foreground"
+                            aria-label={`Edit ${c.name}`}
+                          >
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </Button>
+                        }
+                        onUpdated={() => toast.success(`Client ${c.name} updated`)}
+                      />
+
+                      <DeleteCustomerDialog
+                        customerId={c.id}
+                        customerName={c.name}
+                        disabled={deletingId === c.id}
+                        onDelete={() => handleDelete(c.id, c.name)}
+                      />
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
     </AppShell>
   );
 }
@@ -237,27 +384,29 @@ function DeleteCustomerDialog({
         <Button
           type="button"
           size="icon"
-          variant="ghost"
-          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 absolute top-4 right-4"
+          variant="outline"
+          className="h-8 w-8 border-border bg-transparent hover:bg-destructive/10 text-muted-foreground hover:text-destructive hover:border-destructive/30"
           aria-label={`Delete client ${customerName}`}
           onClick={(e) => e.stopPropagation()}
         >
-          <Trash2 className="h-4 w-4" />
+          <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent onClick={(e) => e.stopPropagation()}>
         <AlertDialogHeader>
-          <AlertDialogTitle className="font-display text-2xl">
+          <AlertDialogTitle className="font-serif text-xl">
             Delete client {customerName}?
           </AlertDialogTitle>
-          <AlertDialogDescription>
-            This will permanently remove this client from the database.
+          <AlertDialogDescription className="text-xs">
+            This will permanently remove this client from the database. Note that clients with active or upcoming bookings cannot be deleted.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={disabled} onClick={(e) => e.stopPropagation()}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={disabled} onClick={(e) => e.stopPropagation()}>
+            Cancel
+          </AlertDialogCancel>
           <AlertDialogAction
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 text-xs"
             disabled={disabled}
             onClick={handleDelete}
           >

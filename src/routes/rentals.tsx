@@ -31,6 +31,7 @@ import { Edit2, Plus, Trash2, Search } from "lucide-react";
 import { EditRentalDialog } from "@/components/forms/EditRentalDialog";
 import { NewRentalDialog } from "@/components/forms/NewRentalDialog";
 import { ViewInvoiceDialog } from "@/components/forms/ViewInvoiceDialog";
+import { CancelOrderDialog } from "@/components/forms/CancelOrderDialog";
 import { toast } from "sonner";
 
 function formatDate(dateStr: string) {
@@ -52,6 +53,11 @@ function getBillDueAmount(rentalsList: any[], allRentals: any[] = []) {
   const relatedRentals = rentalsList.length > 0 && rentalsList[0]?.billNo && allRentals.length > 0
     ? allRentals.filter((r) => r.billNo === rentalsList[0].billNo)
     : rentalsList;
+
+  // Cancelled bills have no remaining due balance
+  if (relatedRentals.length > 0 && relatedRentals.every((r) => r.status === "cancelled")) {
+    return 0;
+  }
 
   // Sum the total for each piece (which includes discounts and penalties).
   // Security and payments are bill-level.
@@ -298,6 +304,9 @@ export default function RentalsPage() {
                   </div>
                   <div className="mt-3 flex justify-end items-center gap-2">
                     <ViewInvoiceDialog rental={r} disabled={deletingId === r.id} />
+                    {r.status !== "returned" && r.status !== "cancelled" && (
+                      <CancelOrderDialog rental={r} disabled={deletingId === r.id} />
+                    )}
                     <EditRentalDialog
                       rental={r}
                       trigger={
@@ -435,6 +444,9 @@ export default function RentalsPage() {
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
                       <ViewInvoiceDialog rental={r} disabled={deletingId === r.id} />
+                      {r.status !== "returned" && r.status !== "cancelled" && (
+                        <CancelOrderDialog rental={r} disabled={deletingId === r.id} />
+                      )}
                       <EditRentalDialog
                         rental={r}
                         trigger={

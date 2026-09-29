@@ -116,6 +116,11 @@ export interface InvoiceFormState {
   }>;
   securityAmount: number;
   securityReturned?: boolean;
+  cancellationCharge?: number;
+  cancellationReason?: string;
+  cancelledAt?: string;
+  refundAmount?: number;
+  refundPaid?: boolean;
   signature?: string;
   ownerNumber: string;
   instaId: string;
@@ -211,6 +216,7 @@ export function getInvoiceContent({
                 if (status === "active") return "Delivery Invoice";
                 if (status === "returned") return "Final Invoice";
                 if (status === "overdue") return "Overdue Final Bill";
+                if (status === "cancelled") return "Cancellation Invoice";
                 return "Invoice";
               })()}
             </h2>
@@ -265,16 +271,23 @@ export function getInvoiceContent({
         </table>
 
         <div class="summary-box">
-          <div class="row"><span>Subtotal</span><span>${formatCurrencyINR(piecesTotal)}</span></div>
-          <div class="row"><span>Security Deposit Received</span><span>${formatCurrencyINR(form.securityAmount)}</span></div>
-          <div class="row"><span>Discount</span><span>-${formatCurrencyINR(form.discount)}</span></div>
-          ${(form.payments && form.payments.length > 0) ? `
-            <div class="row" style="padding-top: 4px; margin-top: 2px; border-top: 1px solid #eaeaea; flex-direction: column; align-items: flex-start; gap: 2px;">
-              <div style="width: 100%; display: flex; justify-content: space-between;"><strong>Payments Received</strong></div>
-              ${form.payments.map(p => `<div style="width: 100%; display: flex; justify-content: space-between; font-size: 10px; color: #333;"><span>Paid on ${formatDate(p.date)}</span><span>-${formatCurrencyINR(p.amount)}</span></div>`).join('')}
-            </div>` : ''}
-          <div class="row"><span>Security Refund Due</span><span>${formatCurrencyINR(securityRefundDue)}</span></div>
-          <div class="row total"><span>Rental Balance Due</span><span>${formatCurrencyINR(balanceDue)}</span></div>
+          ${(form?.status || "").toLowerCase() === "cancelled" ? `
+            <div class="row"><span style="color: #e11d48; font-weight: bold;">Status</span><span style="color: #e11d48; font-weight: bold;">CANCELLED</span></div>
+            <div class="row"><span>Total Advance Paid</span><span>${formatCurrencyINR(totalPaid)}</span></div>
+            <div class="row"><span style="color: #e11d48;">Cancellation Charges Deducted</span><span style="color: #e11d48;">-${formatCurrencyINR(form.cancellationCharge || 0)}</span></div>
+            <div class="row total" style="color: #059669; border-top: 2px solid #059669;"><span>Refund ${form.refundPaid ? "Returned" : "Due"}</span><span>${formatCurrencyINR(form.refundAmount ?? Math.max(0, totalPaid - (form.cancellationCharge || 0)))}</span></div>
+          ` : `
+            <div class="row"><span>Subtotal</span><span>${formatCurrencyINR(piecesTotal)}</span></div>
+            <div class="row"><span>Security Deposit Received</span><span>${formatCurrencyINR(form.securityAmount)}</span></div>
+            <div class="row"><span>Discount</span><span>-${formatCurrencyINR(form.discount)}</span></div>
+            ${(form.payments && form.payments.length > 0) ? `
+              <div class="row" style="padding-top: 4px; margin-top: 2px; border-top: 1px solid #eaeaea; flex-direction: column; align-items: flex-start; gap: 2px;">
+                <div style="width: 100%; display: flex; justify-content: space-between;"><strong>Payments Received</strong></div>
+                ${form.payments.map(p => `<div style="width: 100%; display: flex; justify-content: space-between; font-size: 10px; color: #333;"><span>Paid on ${formatDate(p.date)}</span><span>-${formatCurrencyINR(p.amount)}</span></div>`).join('')}
+              </div>` : ''}
+            <div class="row"><span>Security Refund Due</span><span>${formatCurrencyINR(securityRefundDue)}</span></div>
+            <div class="row total"><span>Rental Balance Due</span><span>${formatCurrencyINR(balanceDue)}</span></div>
+          `}
         </div>
 
         <div style="margin-top: 20px; font-size: 10px; color: #555; border-top: 1px solid #eaeaea; padding-top: 10px; line-height: 1.5;">

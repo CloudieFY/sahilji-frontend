@@ -32,6 +32,10 @@ function getBillDueAmount(rental: any, allRentals: any[]) {
   console.log('[DeliveriesPage] getBillDueAmount called for rental:', rental.id);
   const relatedRentals = rental.billNo ? allRentals.filter((r) => r.billNo === rental.billNo) : [rental];
 
+  if (relatedRentals.length > 0 && relatedRentals.every((r) => r.status === "cancelled")) {
+    return 0;
+  }
+
   let aggPiecesTotal = 0;
   let aggSecurity = 0;
   let aggDiscount = 0;

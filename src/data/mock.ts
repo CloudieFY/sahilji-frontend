@@ -6,7 +6,7 @@ import item5 from "@/assets/item-5.jpg";
 import item6 from "@/assets/item-6.jpg";
 
 export type ItemStatus = "available" | "rented" | "cleaning" | "reserved";
-export type RentalStatus = "active" | "upcoming" | "returned" | "overdue";
+export type RentalStatus = "active" | "upcoming" | "returned" | "overdue" | "cancelled";
 
 export interface Item {
   id: string;
@@ -65,6 +65,11 @@ export interface Rental {
   advance: number;
   securityAmount: number;
   securityReturned?: boolean;
+  cancellationCharge?: number;
+  cancellationReason?: string;
+  cancelledAt?: string;
+  refundAmount?: number;
+  refundPaid?: boolean;
   signature?: string;
   returnedAt?: string;
   penalty?: number;
