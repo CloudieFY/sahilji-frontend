@@ -14,7 +14,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Eye, Printer, Download, Send, Receipt, IndianRupee, PlusCircle, Loader2 } from "lucide-react";
 import { useStore } from "@/data/store";
 import { formatCurrencyINR, getBillRepresentative } from "@/lib/utils";
-import { printInvoiceHtml, getPoliciesHtml } from "@/lib/invoiceTemplate";
+import { printInvoiceHtml, getPoliciesHtml, getPoliciesColumnsHtml } from "@/lib/invoiceTemplate";
 import type { Rental } from "@/data/mock";
 
 function formatDate(dateStr: string) {
@@ -154,11 +154,11 @@ export function ViewInvoiceDialog({
 
   const logoUrl =
     typeof window !== "undefined"
-      ? `${window.location.origin}/logo.png`
-      : "/logo.png";
+      ? `${window.location.origin}/logo-sm.png`
+      : "/logo-sm.png";
 
-  function getA4InvoiceHtml() {
-    const piecesHtml = piecesData
+  function getA4InvoiceInnerHtml() {
+    const piecesRows = piecesData
       .map(
         ({
           r,
@@ -174,149 +174,197 @@ export function ViewInvoiceDialog({
           rQuantity,
           rLostQuantity,
         }) => `
-      <tr>
-        <td style="vertical-align: middle;"><div style="width: 12px; height: 12px; border: 1px solid #666; border-radius: 2px; margin: 0 auto;"></div></td>
-        <td>${rItem?.image ? `<img src="${rItem.image}" style="width: 35px; height: 45px; object-fit: cover; border-radius: 3px;" />` : ""}</td>
-        <td><strong>${rItem?.name || "Unknown item"}</strong><br/><span style="font-size: 9px; color: #666;">Qty: ${rQuantity}${rLostQuantity > 0 ? ` | Lost: ${rLostQuantity}` : ""} | Del: ${formatDate(rDeliveryDate)}${rDeliveryTime ? ` ${rDeliveryTime}` : ""}${rDeliveryTimePeriod ? ` (${rDeliveryTimePeriod})` : ""} | Return: ${formatDate(rEndDate)}${rEndTime ? ` ${rEndTime}` : ""}${rEndTimePeriod ? ` (${rEndTimePeriod})` : ""}</span></td>
-        <td>${r.itemNo || r.itemId}</td>
-        <td class="text-right">${formatCurrencyINR(rRate)}</td>
-        <td class="text-right">${formatCurrencyINR(rSubtotal)}</td>
+      <tr style="border-bottom: 1px solid #e2e8f0;">
+        <td style="padding: 6px 6px; text-align: center; vertical-align: middle;">
+          <div style="width: 12px; height: 12px; border: 1px solid #94a3b8; border-radius: 2px; margin: 0 auto;"></div>
+        </td>
+        <td style="padding: 6px 6px; vertical-align: middle; text-align: center;">
+          ${
+            rItem?.image
+              ? `<img src="${rItem.image}" alt="${rItem.name || "Item"}" width="34" height="44" style="width: 34px !important; height: 44px !important; min-width: 34px; min-height: 44px; max-width: 34px; max-height: 44px; object-fit: cover; border-radius: 3px; border: 1px solid #e2e8f0; display: block; margin: 0 auto;" />`
+              : `<div style="width: 34px; height: 44px; background: #f1f5f9; border-radius: 3px; border: 1px solid #e2e8f0; margin: 0 auto;"></div>`
+          }
+        </td>
+        <td style="padding: 6px 8px; vertical-align: middle; text-align: left;">
+          <div style="color: #0f172a; font-size: 11px; font-weight: 700; line-height: 1.3;">${rItem?.name || "Unknown item"}</div>
+          <div style="font-size: 9px; color: #64748b; line-height: 1.35; margin-top: 2px;">Qty: ${rQuantity}${rLostQuantity > 0 ? ` | Lost: ${rLostQuantity}` : ""} | Del: ${formatDate(rDeliveryDate)}${rDeliveryTime ? ` ${rDeliveryTime}` : ""}${rDeliveryTimePeriod ? ` (${rDeliveryTimePeriod})` : ""} | Return: ${formatDate(rEndDate)}${rEndTime ? ` ${rEndTime}` : ""}${rEndTimePeriod ? ` (${rEndTimePeriod})` : ""}</div>
+        </td>
+        <td style="padding: 6px 8px; vertical-align: middle; text-align: center; color: #334155; font-weight: 600; font-size: 10px;">${r.itemNo || r.itemId}</td>
+        <td style="padding: 6px 8px; vertical-align: middle; text-align: right; color: #334155; font-size: 10px;">${formatCurrencyINR(rRate)}</td>
+        <td style="padding: 6px 8px; vertical-align: middle; text-align: right; font-weight: 700; color: #0f172a; font-size: 10px;">${formatCurrencyINR(rSubtotal)}</td>
       </tr>
     `,
       )
       .join("");
 
     return `
+      <div id="invoice-doc-body" style="width: 100%; max-width: 740px; margin: 0 auto; background: #ffffff; color: #0f172a; font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; line-height: 1.35; padding: 14px 18px; box-sizing: border-box; position: relative;">
+        <!-- Watermark (very faint so it does not disturb any text or numbers) -->
+        <div style="position: absolute; top: 48%; left: 50%; transform: translate(-50%, -50%) rotate(-35deg); font-size: 44px; font-weight: 800; color: rgba(217, 119, 6, 0.035); z-index: 0; white-space: nowrap; pointer-events: none; letter-spacing: 2px; user-select: none;">
+          ARIHANT COLLECTION
+        </div>
+
+        <!-- Religious slogans -->
+        <div style="text-align: center; font-size: 12px; font-weight: bold; color: #b45309; margin-bottom: 6px; line-height: 1.35; position: relative; z-index: 1;">
+          <div style="margin-bottom: 2px;">॥ श्री आशापुरा माताय नमः ॥</div>
+          <div>॥ श्री नाकोड़ा पार्श्वनाथाय नमः ॥</div>
+        </div>
+
+        <!-- Header -->
+        <table style="width: 100%; border-collapse: collapse; border-bottom: 2px solid #d97706; margin-bottom: 8px; position: relative; z-index: 1; border-top: none; border-left: none; border-right: none;">
+          <tr>
+            <td style="vertical-align: middle; border: none; padding: 0 0 6px 0;">
+              <table style="border-collapse: collapse; border: none;">
+                <tr>
+                  <td style="vertical-align: middle; border: none; padding: 0 10px 0 0;">
+                    <img
+                      src="${logoUrl}"
+                      alt="ARIHANT COLLECTION logo"
+                      width="48"
+                      height="48"
+                      style="width: 48px !important; height: 48px !important; min-width: 48px; min-height: 48px; max-width: 48px; max-height: 48px; border-radius: 50%; border: 1.5px solid #fde68a; object-fit: cover; display: block;"
+                    />
+                  </td>
+                  <td style="vertical-align: middle; border: none; padding: 0;">
+                    <div style="font-size: 16px; font-weight: 900; color: #0f172a; letter-spacing: 0.8px; text-transform: uppercase;">ARIHANT COLLECTION</div>
+                    <div style="color: #475569; font-size: 9.5px; line-height: 1.3; margin-top: 1px;">Address: Maheshwar Road, Near Daluka Market, Barwaha 451115 (Dist. Khargone)</div>
+                    <div style="color: #1e293b; font-size: 9.5px; font-weight: 500; margin-top: 1px;">Contact: <strong>9039489995</strong> | Insta: <strong>Arihant_rental_point</strong></div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+            <td style="vertical-align: middle; text-align: right; border: none; padding: 0 0 6px 0; min-width: 140px;">
+              <div style="color: #d97706; font-size: 17px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">${invoiceTitle}</div>
+              <div style="font-size: 11.5px; font-weight: bold; color: #334155; margin-top: 1px;"># ${rental.billNo || rental.id}</div>
+              <div style="font-size: 10px; color: #64748b; margin-top: 1px;">Date: ${billMakingDate}</div>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Billed To & Rental Overview -->
+        <table style="width: 100%; border-collapse: separate; border-spacing: 10px 0; margin-bottom: 8px; position: relative; z-index: 1; border: none;">
+          <tr>
+            <td style="width: 58%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 5px; padding: 6px 10px; vertical-align: top;">
+              <div style="font-size: 8.5px; font-weight: bold; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px; margin-bottom: 2px;">Billed To</div>
+              <div style="font-size: 12px; font-weight: bold; color: #0f172a; margin-bottom: 2px;">${customer?.name || mainBillRental.customerId || "Client"}</div>
+              ${customer?.phone ? `<div style="color: #475569; font-size: 10px; line-height: 1.35;">Phone: ${customer.phone}</div>` : ""}
+              ${customer?.email ? `<div style="color: #475569; font-size: 10px; line-height: 1.35;">Email: ${customer.email}</div>` : ""}
+              ${mainBillRental.address || rental.address ? `<div style="color: #475569; font-size: 10px; line-height: 1.35;">Address: ${mainBillRental.address || rental.address}</div>` : ""}
+              ${(mainBillRental as any).instaId ? `<div style="color: #334155; font-size: 10px; font-weight: 500; line-height: 1.35;">Insta ID: ${(mainBillRental as any).instaId}</div>` : ""}
+            </td>
+            <td style="width: 42%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 5px; padding: 6px 10px; vertical-align: top; text-align: right;">
+              <div style="font-size: 8.5px; font-weight: bold; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px; margin-bottom: 2px;">Rental Details</div>
+              <div style="font-size: 10.5px; color: #334155; margin-bottom: 2px;">Status: <strong style="color: #b45309; text-transform: uppercase;">${status}</strong></div>
+              <div style="font-size: 10px; color: #64748b;">Total Items: <strong>${piecesData.length} piece(s)</strong></div>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Items Table -->
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 10px; position: relative; z-index: 1;">
+          <thead>
+            <tr style="background: #f1f5f9;">
+              <th style="padding: 7px 6px; text-align: center; width: 28px; font-size: 9.5px; font-weight: 700; color: #334155; border-top: 1px solid #cbd5e1; border-bottom: 2px solid #94a3b8; text-transform: uppercase;">&#10003;</th>
+              <th style="padding: 7px 6px; text-align: center; width: 44px; font-size: 9.5px; font-weight: 700; color: #334155; border-top: 1px solid #cbd5e1; border-bottom: 2px solid #94a3b8; text-transform: uppercase;">Image</th>
+              <th style="padding: 7px 8px; text-align: left; font-size: 9.5px; font-weight: 700; color: #334155; border-top: 1px solid #cbd5e1; border-bottom: 2px solid #94a3b8; text-transform: uppercase;">Item Description & Dates</th>
+              <th style="padding: 7px 8px; text-align: center; width: 75px; font-size: 9.5px; font-weight: 700; color: #334155; border-top: 1px solid #cbd5e1; border-bottom: 2px solid #94a3b8; text-transform: uppercase;">Item No</th>
+              <th style="padding: 7px 8px; text-align: right; width: 75px; font-size: 9.5px; font-weight: 700; color: #334155; border-top: 1px solid #cbd5e1; border-bottom: 2px solid #94a3b8; text-transform: uppercase;">Rate</th>
+              <th style="padding: 7px 8px; text-align: right; width: 80px; font-size: 9.5px; font-weight: 700; color: #334155; border-top: 1px solid #cbd5e1; border-bottom: 2px solid #94a3b8; text-transform: uppercase;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${piecesRows}
+          </tbody>
+        </table>
+
+        <!-- Financial Summary -->
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 8px; position: relative; z-index: 1;">
+          <div style="width: 270px; font-size: 10px; border-top: 1px solid #e2e8f0; padding-top: 4px;">
+            <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #334155;">
+              <span>Total Rent:</span>
+              <span style="font-weight: 600;">${formatCurrencyINR(aggSubtotal)}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #334155;">
+              <span>Security Deposit:</span>
+              <span style="font-weight: 600;">${formatCurrencyINR(aggSecurity)}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #047857;">
+              <span>Discount:</span>
+              <span style="font-weight: 600;">-${formatCurrencyINR(aggDiscount)}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 3px 0; border-top: 1px solid #cbd5e1; font-weight: bold; color: #0f172a; margin-top: 2px;">
+              <span>Total Bill:</span>
+              <span>${formatCurrencyINR(aggTotal)}</span>
+            </div>
+            ${
+              billPayments.length > 0
+                ? `
+              <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 3px; padding: 3px 5px; margin: 3px 0;">
+                <div style="font-size: 8.5px; font-weight: bold; text-transform: uppercase; color: #166534; margin-bottom: 1px;">Payments Received</div>
+                ${billPayments.map((p: { date: string; amount: number }) => `<div style="display: flex; justify-content: space-between; font-size: 9px; color: #14532d;"><span>Paid on ${formatDate(p.date)}</span><span style="font-weight: bold;">-${formatCurrencyINR(p.amount)}</span></div>`).join("")}
+              </div>
+            `
+                : ""
+            }
+            <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #b45309;">
+              <span>Security Refund:</span>
+              <span style="font-weight: 600;">${formatCurrencyINR(aggSecurityRefundDue)}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 4px 0; border-top: 2px solid #0f172a; font-size: 12px; font-weight: bold; color: #d97706; margin-top: 2px;">
+              <span>Balance Due:</span>
+              <span>${formatCurrencyINR(aggFinalDue)}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Terms & Conditions in 2 columns -->
+        <div style="border-top: 1px solid #e2e8f0; padding-top: 5px; margin-top: 4px; position: relative; z-index: 1;">
+          <div style="font-size: 9px; font-weight: bold; color: #0f172a; margin-bottom: 2px;">Terms & Conditions:</div>
+          ${getPoliciesColumnsHtml()}
+        </div>
+
+        <!-- Signatures (3-column table so line NEVER stretches across full page) -->
+        <table style="width: 100%; border-collapse: collapse; margin-top: 18px; border: none; position: relative; z-index: 1; page-break-inside: avoid;">
+          <tr>
+            <td style="width: 180px; text-align: center; vertical-align: bottom; border: none; padding: 0;">
+              ${mainBillRental.signature ? `<img src="${mainBillRental.signature}" style="max-height: 36px; max-width: 140px; margin: 0 auto 3px auto; display: block; object-fit: contain;" />` : `<div style="height: 30px;"></div>`}
+              <div style="border-top: 1.5px solid #334155; width: 150px; margin: 0 auto; padding-top: 4px; font-size: 8.5px; font-weight: 700; text-transform: uppercase; color: #475569; letter-spacing: 0.5px;">
+                Authorized Signature
+              </div>
+            </td>
+            <td style="text-align: center; vertical-align: bottom; border: none; padding: 0 0 4px 0;">
+              <span style="font-size: 14px; vertical-align: middle;">${(mainBillRental as any).confirmationChecked ? "☑" : "☐"}</span>
+              <strong style="font-size: 10.5px; vertical-align: middle; color: #1e293b; margin-left: 3px;">Confirmed</strong>
+            </td>
+            <td style="width: 180px; text-align: center; vertical-align: bottom; border: none; padding: 0;">
+              <div style="height: 30px;"></div>
+              <div style="border-top: 1.5px solid #334155; width: 150px; margin: 0 auto; padding-top: 4px; font-size: 8.5px; font-weight: 700; text-transform: uppercase; color: #475569; letter-spacing: 0.5px;">
+                Client Signature
+              </div>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `;
+  }
+
+  function getA4InvoiceHtml() {
+    return `
+      <!DOCTYPE html>
       <html>
         <head>
           <title>Invoice ${rental.billNo || rental.id}</title>
           <style>
-            @page { size: A4; margin: 12mm 15mm; }
+            @page { size: A4 portrait; margin: 6mm 8mm; }
             * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; box-sizing: border-box; }
-            body { margin: 0; padding: 0; background: #fff; font-family: -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            .header { display: flex; align-items: center; border-bottom: 2px solid #d4af37; padding-bottom: 6px; margin-bottom: 10px; }
-            .logo { width: 50px; height: 50px; margin-right: 15px; border-radius: 50%; border: 1px solid #eee; object-fit: cover; }
-            .company-info h1 { margin: 0; font-size: 18px; color: #111; letter-spacing: 1.2px; text-transform: uppercase; }
-            .company-info p { margin: 2px 0 0 0; color: #666; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
-            .invoice-title { margin-left: auto; text-align: right; }
-            .invoice-title h2 { margin: 0; color: #d4af37; font-size: 22px; letter-spacing: 1.2px; text-transform: uppercase; }
-            .invoice-title p { margin: 2px 0 0 0; font-size: 11px; color: #555; }
-            .grid { display: flex; justify-content: space-between; margin-bottom: 10px; gap: 15px; }
-            .col { flex: 1; }
-            .label { font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
-            .value { font-size: 11px; margin: 0 0 2px 0; line-height: 1.3; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-            th, td { padding: 4px 6px; text-align: left; border-bottom: 1px solid #eaeaea; font-size: 11px; }
-            th { font-size: 9px; text-transform: uppercase; color: #666; letter-spacing: 0.5px; border-bottom: 2px solid #222; }
-            .text-right { text-align: right; }
-            .summary-box { width: 50%; margin-left: auto; }
-            .row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #eaeaea; font-size: 11px; }
-            .row.total { font-weight: bold; font-size: 13px; border-top: 2px solid #222; border-bottom: none; padding-top: 6px; margin-top: 4px; color: #d4af37; }
-            .signatures { display: flex; justify-content: space-between; margin-top: 20px; page-break-inside: avoid; }
-            .sign-box { flex: 0 0 40%; text-align: center; min-height: 50px; border-bottom: 1px solid #222; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 4px; }
-            .sign-box p { margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; }
-            .sign-img { max-height: 45px; max-width: 100%; margin: 0 auto 4px auto; object-fit: contain; }
-            .invoice-half { padding: 0; box-sizing: border-box; font-family: -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #222; position: relative; z-index: 1; }
-            .watermark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 60px; color: rgba(212, 175, 55, 0.1); z-index: -1; white-space: nowrap; pointer-events: none; font-weight: bold; }
-            tr { page-break-inside: avoid; }
+            body { margin: 0; padding: 0; background: #fff; font-family: 'Segoe UI', Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             @media print {
-              @page { size: A4; margin: 12mm 15mm; }
-              body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-              .invoice-half { padding: 0; }
+              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             }
           </style>
         </head>
         <body>
-          <div class="invoice-half">
-            <div class="watermark">ARIHANT COLLECTION</div>
-            <div style="text-align: center; font-size: 14px; font-weight: bold; color: #d4af37; margin-bottom: 12px;">
-              <div style="margin-bottom: 4px;">॥ श्री आशापुरा माताय नमः ॥</div>
-              <div>॥ श्री नाकोड़ा पार्श्वनाथाय नमः ॥</div>
-            </div>
-            <div class="header">
-              <img class="logo" src="${logoUrl}" alt="ARIHANT COLLECTION logo" />
-              <div class="company-info">
-                <h1 style="margin-bottom: 4px;">ARIHANT COLLECTION</h1>
-                <p style="text-transform: none; margin-bottom: 2px;">Address: Maheshwar Road, Near Daluka Market, Barwaha 451115 District - Khargone</p>
-                <p style="text-transform: none; margin-bottom: 2px; color: #111;">Contact: <strong>9039489995</strong> | Insta: <strong>Arihant_rental_point</strong></p>
-              </div>
-              <div class="invoice-title">
-                <h2>${invoiceTitle}</h2>
-                <p># ${rental.billNo || rental.id}</p>
-                <p>Date: ${billMakingDate}</p>
-              </div>
-            </div>
-            
-            <div class="grid">
-              <div class="col">
-                <div class="label">Billed To</div>
-                <p class="value"><strong>${customer?.name || mainBillRental.customerId}</strong></p>
-                <p class="value">${customer?.email || ""}</p>
-                <p class="value">${customer?.phone || ""}</p>
-                <p class="value">${mainBillRental.address || rental.address || ""}</p>
-                ${(mainBillRental as any).instaId ? `<p class="value"><strong>Insta ID:</strong> ${(mainBillRental as any).instaId}</p>` : ""}
-              </div>
-              <div class="col" style="text-align: right;">
-                <div class="label">Rental Details</div>
-                <p class="value"><strong>Status:</strong> ${status.toUpperCase()}</p>
-              </div>
-            </div>
-
-            <table>
-              <thead>
-                <tr>
-                  <th style="width: 20px; text-align: center;">&#10003;</th>
-                  <th style="width: 60px;">Image</th>
-                  <th>Item Description & Dates</th>
-                  <th>Item No</th>
-                  <th class="text-right">Rate</th>
-                  <th class="text-right">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${piecesHtml}
-              </tbody>
-            </table>
-
-            <div class="summary-box">
-              <div class="row"><span>Total Rent</span><span>${formatCurrencyINR(aggSubtotal)}</span></div>
-              <div class="row"><span>Security Deposit</span><span>${formatCurrencyINR(aggSecurity)}</span></div>
-              <div class="row"><span>Discount</span><span>-${formatCurrencyINR(aggDiscount)}</span></div>
-              <div class="row"><span>Total Bill</span><span>${formatCurrencyINR(aggTotal)}</span></div>
-              ${
-                billPayments.length > 0
-                  ? `
-                <div class="row" style="padding-top: 4px; margin-top: 2px; border-top: 1px solid #eaeaea; flex-direction: column; align-items: flex-start; gap: 2px;">
-                  <div style="width: 100%; display: flex; justify-content: space-between;"><strong>Payments Received</strong></div>
-                  ${billPayments.map((p: { date: string; amount: number }) => `<div style="width: 100%; display: flex; justify-content: space-between; font-size: 10px; color: #333;"><span>Paid on ${formatDate(p.date)}</span><span>-${formatCurrencyINR(p.amount)}</span></div>`).join("")}
-                </div>
-              `
-                  : ""
-              }
-              <div class="row"><span>Security Refund</span><span>${formatCurrencyINR(aggSecurityRefundDue)}</span></div>
-              <div class="row total"><span>Balance Due</span><span>${formatCurrencyINR(aggFinalDue)}</span></div>
-            </div>
-
-            <div style="margin-top: 20px; font-size: 10px; color: #555; border-top: 1px solid #eaeaea; padding-top: 10px; line-height: 1.5;">
-              <strong style="color: #222; font-size: 11px;">Terms & Conditions:</strong><br/>
-              ${getPoliciesHtml()}
-            </div>
-
-            <div class="signatures" style="margin-top: 30px; display: flex; justify-content: space-between; align-items: flex-end;">
-              <div style="display: flex; align-items: flex-end; gap: 20px; flex: 1;">
-                <div class="sign-box" style="flex: 1;">
-                  ${mainBillRental.signature ? `<img src="${mainBillRental.signature}" class="sign-img" />` : ""}
-                  <p>Authorized Signature</p>
-                </div>
-                <div style="padding-bottom: 5px;">
-                  <p class="value"><span style="font-size: 22px; vertical-align: middle;">${(mainBillRental as any).confirmationChecked ? "☑" : "☐"}</span> <strong style="vertical-align: middle;">Confirmed</strong></p>
-                </div>
-              </div>
-              <div class="sign-box" style="flex: 1;">
-                <p>Client Signature</p>
-              </div>
-            </div>
-          </div>
+          ${getA4InvoiceInnerHtml()}
         </body>
       </html>
     `;
@@ -408,26 +456,23 @@ export function ViewInvoiceDialog({
       );
       const filename = `Invoice-${filenameSafe}.pdf`;
 
-      // Pass the full HTML document string directly — do NOT wrap in a <div>
-      // because getA4InvoiceHtml() already returns a complete <html>...</html>
-      // document. Nesting it inside another element breaks html2canvas rendering
-      // and produces blurry / misaligned output.
-      const htmlString = getA4InvoiceHtml();
+      const htmlString = `
+        <div style="background-color: #ffffff; color: #0f172a; padding: 0; margin: 0; width: 100%;">
+          ${getA4InvoiceInnerHtml()}
+        </div>
+      `;
 
       await html2pdf()
         .set({
-          margin: [8, 8, 8, 8],
+          margin: [6, 6, 6, 6],
           filename,
-          // PNG preserves sharp text & thin lines — jpeg compression blurs them.
-          image: { type: "png" },
+          // JPEG compression keeps PDF under ~250 KB (vs 57 MB uncompressed PNG)
+          image: { type: "jpeg", quality: 0.95 },
           html2canvas: {
-            // scale 4 = 4× device-pixel-ratio → crisp at any zoom level
-            scale: 4,
+            scale: 2,
             useCORS: true,
             backgroundColor: "#ffffff",
-            letterRendering: true,
-            // Match the A4 width (794 px at 96 dpi) so layout is never squashed
-            windowWidth: 794,
+            logging: false,
           },
           jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
         })

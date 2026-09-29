@@ -7,6 +7,26 @@ export function getPoliciesHtml() {
   return policies.replace(/\n/g, "<br/>");
 }
 
+export function getPoliciesColumnsHtml() {
+  const policies = typeof window !== "undefined" ? localStorage.getItem("rental_policies") ?? DEFAULT_POLICIES : DEFAULT_POLICIES;
+  const parts = policies.split(/\n\s*\n/);
+  if (parts.length >= 2) {
+    return `
+      <table style="width: 100%; border-collapse: collapse; border: none; font-size: 9px; line-height: 1.45; color: #475569;">
+        <tr>
+          <td style="width: 50%; vertical-align: top; padding: 0 12px 0 0; border: none;">
+            ${parts[0].replace(/\n/g, "<br/>")}
+          </td>
+          <td style="width: 50%; vertical-align: top; padding: 0 0 0 12px; border: none;">
+            ${parts.slice(1).join("<br/><br/>").replace(/\n/g, "<br/>")}
+          </td>
+        </tr>
+      </table>
+    `;
+  }
+  return `<div style="font-size: 9px; line-height: 1.45; color: #475569;">${policies.replace(/\n/g, "<br/>")}</div>`;
+}
+
 export function formatDate(dateStr: string) {
   if (!dateStr) return "";
   const parts = dateStr.split("T")[0].split("-");
@@ -176,7 +196,7 @@ export function getInvoiceContent({
           <div>॥ श्री नाकोड़ा पार्श्वनाथाय नमः ॥</div>
         </div>
         <div class="header">
-          <img class="logo" src="${logoUrl}" alt="ARIHANT COLLECTION logo" />
+          <img class="logo" src="${logoUrl}" alt="ARIHANT COLLECTION logo" width="45" height="45" style="width: 45px !important; height: 45px !important; min-width: 45px; min-height: 45px; max-width: 45px; max-height: 45px; border-radius: 50%; object-fit: cover; border: 1px solid #eee; margin-right: 12px; display: block;" />
           <div class="company-info">
             <h1 style="margin-bottom: 4px;">ARIHANT COLLECTION </h1>
             <p style="text-transform: none; margin-bottom: 2px;">Address:Maheshwar Road, Near Daluka Market,Barwaha 451115 District -Khargone</p>

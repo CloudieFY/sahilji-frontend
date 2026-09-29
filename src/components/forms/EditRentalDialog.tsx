@@ -750,7 +750,7 @@ Thank you for choosing ARIHANT COLLECTION !`;
           <div>॥ श्री नाकोड़ा पार्श्वनाथाय नमः ॥</div>
         </div>
         <div class="header">
-          <img class="logo" src="${logoUrl}" alt="ARIHANT COLLECTION logo" />
+          <img class="logo" src="${logoUrl}" alt="ARIHANT COLLECTION logo" width="50" height="50" style="width: 50px !important; height: 50px !important; min-width: 50px; min-height: 50px; max-width: 50px; max-height: 50px; border-radius: 50%; object-fit: cover; border: 1px solid #eee; margin-right: 15px; display: block;" />
           <div class="company-info">
             <h1 style="margin-bottom: 4px;">ARIHANT COLLECTION </h1>
             <p style="text-transform: none; margin-bottom: 2px;">Address:Maheshwar Road, Near Daluka Market,Barwaha 451115 District -Khargone</p>
