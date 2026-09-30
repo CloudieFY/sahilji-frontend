@@ -59,10 +59,12 @@ export function ViewInvoiceDialog({
   const piecesData = useMemo(() => {
     return relatedRentals.map((r) => {
       const rItem = getItem(r.itemId);
+      const isCancelled = r.status === "cancelled";
       const rQuantity = Math.max(1, (r as any).quantity ?? 1);
       const rLostQuantity = (r as any).lostQuantity ?? 0;
       const rRate = (r as any).rate ?? (rItem ? rItem.pricePerDay : 0);
-      const rSubtotal = Number(r.total) || rRate * rQuantity;
+      const rCancellationCharge = Number(r.cancellationCharge || 0);
+      const rSubtotal = isCancelled ? 0 : (Number(r.total) || rRate * rQuantity);
       const rDeliveryDate = r.deliveryDate || r.startDate || "";
       const rEndDate = r.endDate || "";
       const rDeliveryTime = (r as any).deliveryTime || "";
@@ -73,6 +75,8 @@ export function ViewInvoiceDialog({
       return {
         r,
         rItem,
+        isCancelled,
+        rCancellationCharge,
         rQuantity,
         rLostQuantity,
         rRate,
@@ -88,9 +92,10 @@ export function ViewInvoiceDialog({
   }, [relatedRentals, getItem]);
 
   const aggSubtotal = piecesData.reduce((sum, p) => sum + p.rSubtotal, 0);
+  const aggCancellationCharges = piecesData.reduce((sum, p) => sum + (p.isCancelled ? p.rCancellationCharge : 0), 0);
   const aggSecurity = Number(mainBillRental.securityAmount) || 0;
   const aggDiscount = Number(mainBillRental.discount) || 0;
-  const aggTotal = aggSubtotal + aggSecurity - aggDiscount;
+  const aggTotal = aggSubtotal + aggCancellationCharges + aggSecurity - aggDiscount;
 
   const billPayments = useMemo(() => {
     return relatedRentals.flatMap((r) => r.payments || []);
@@ -165,6 +170,8 @@ export function ViewInvoiceDialog({
         ({
           r,
           rItem,
+          isCancelled,
+          rCancellationCharge,
           rEndDate,
           rDeliveryDate,
           rDeliveryTime,
@@ -188,12 +195,17 @@ export function ViewInvoiceDialog({
           }
         </td>
         <td style="padding: 6px 8px; vertical-align: middle; text-align: left;">
-          <div style="color: #0f172a; font-size: 11px; font-weight: 700; line-height: 1.3;">${rItem?.name || "Unknown item"}</div>
+          <div style="color: #0f172a; font-size: 11px; font-weight: 700; line-height: 1.3;">
+            ${rItem?.name || "Unknown item"}
+            ${isCancelled ? `<span style="background: #ffe4e6; color: #e11d48; font-size: 8.5px; padding: 1px 4px; border-radius: 3px; font-weight: bold; margin-left: 4px; border: 1px solid #fecdd3;">CANCELLED</span>` : ""}
+          </div>
           <div style="font-size: 9px; color: #64748b; line-height: 1.35; margin-top: 2px;">Qty: ${rQuantity}${rLostQuantity > 0 ? ` | Lost: ${rLostQuantity}` : ""} | Del: ${formatDate(rDeliveryDate)}${rDeliveryTime ? ` ${rDeliveryTime}` : ""}${rDeliveryTimePeriod ? ` (${rDeliveryTimePeriod})` : ""} | Return: ${formatDate(rEndDate)}${rEndTime ? ` ${rEndTime}` : ""}${rEndTimePeriod ? ` (${rEndTimePeriod})` : ""}</div>
         </td>
         <td style="padding: 6px 8px; vertical-align: middle; text-align: center; color: #334155; font-weight: 600; font-size: 10px;">${r.itemNo || r.itemId}</td>
         <td style="padding: 6px 8px; vertical-align: middle; text-align: right; color: #334155; font-size: 10px;">${formatCurrencyINR(rRate)}</td>
-        <td style="padding: 6px 8px; vertical-align: middle; text-align: right; font-weight: 700; color: #0f172a; font-size: 10px;">${formatCurrencyINR(rSubtotal)}</td>
+        <td style="padding: 6px 8px; vertical-align: middle; text-align: right; font-weight: 700; color: #0f172a; font-size: 10px;">
+          ${isCancelled ? `<span style="text-decoration: line-through; color: #94a3b8;">${formatCurrencyINR(rRate * rQuantity)}</span>${rCancellationCharge > 0 ? `<div style="color: #e11d48; font-size: 9.5px; font-weight: bold;">Fee: ${formatCurrencyINR(rCancellationCharge)}</div>` : `<div style="color: #64748b; font-size: 9px;">₹0</div>`}` : formatCurrencyINR(rSubtotal)}
+        </td>
       </tr>
     `,
       )
@@ -304,6 +316,12 @@ export function ViewInvoiceDialog({
                 <span>Total Rent:</span>
                 <span style="font-weight: 600;">${formatCurrencyINR(aggSubtotal)}</span>
               </div>
+              ${aggCancellationCharges > 0 ? `
+                <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #e11d48;">
+                  <span>Item Cancellation Fee:</span>
+                  <span style="font-weight: 600;">+${formatCurrencyINR(aggCancellationCharges)}</span>
+                </div>
+              ` : ""}
               <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #334155;">
                 <span>Security Deposit:</span>
                 <span style="font-weight: 600;">${formatCurrencyINR(aggSecurity)}</span>
@@ -394,12 +412,12 @@ export function ViewInvoiceDialog({
   function getThermalInvoiceHtml() {
     const itemsListHtml = piecesData
       .map(
-        ({ rItem, rQuantity, rSubtotal, rDeliveryDate, rEndDate }) => `
-      <div class="thermal-item-name">${rItem?.name || "Item"} (Qty: ${rQuantity})</div>
+        ({ rItem, rQuantity, isCancelled, rCancellationCharge, rSubtotal, rDeliveryDate, rEndDate }) => `
+      <div class="thermal-item-name">${rItem?.name || "Item"} (Qty: ${rQuantity}) ${isCancelled ? `<span style="color:#e11d48;">[CANCELLED]</span>` : ""}</div>
       <div class="thermal-item-sub">Del: ${formatDate(rDeliveryDate)} | Return: ${formatDate(rEndDate)}</div>
       <div class="thermal-row">
         <span>Amount:</span>
-        <span class="thermal-total">${formatCurrencyINR(rSubtotal)}</span>
+        <span class="thermal-total">${isCancelled ? (rCancellationCharge > 0 ? `Fee: ${formatCurrencyINR(rCancellationCharge)}` : "₹0") : formatCurrencyINR(rSubtotal)}</span>
       </div>
       <div class="thermal-divider"></div>
     `,
@@ -436,6 +454,7 @@ export function ViewInvoiceDialog({
             <div class="thermal-divider"></div>
             ${itemsListHtml}
             <div class="thermal-row"><span>Total Rent:</span><span>${formatCurrencyINR(aggSubtotal)}</span></div>
+            ${aggCancellationCharges > 0 ? `<div class="thermal-row" style="color: #e11d48;"><span>Item Cancel Fee:</span><span>+${formatCurrencyINR(aggCancellationCharges)}</span></div>` : ""}
             <div class="thermal-row"><span>Security Deposit:</span><span>${formatCurrencyINR(aggSecurity)}</span></div>
             <div class="thermal-row"><span>Discount:</span><span>-${formatCurrencyINR(aggDiscount)}</span></div>
             <div class="thermal-row thermal-total"><span>Total Bill:</span><span>${formatCurrencyINR(aggTotal)}</span></div>
@@ -725,6 +744,8 @@ Thank you for choosing ARIHANT COLLECTION!`;
                     ({
                       r,
                       rItem,
+                      isCancelled,
+                      rCancellationCharge,
                       rQuantity,
                       rLostQuantity,
                       rRate,
@@ -752,9 +773,16 @@ Thank you for choosing ARIHANT COLLECTION!`;
                           )}
                         </td>
                         <td className="py-2 px-2 align-middle">
-                          <p className="font-bold text-slate-900">
-                            {rItem?.name || "Unknown item"}
-                          </p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="font-bold text-slate-900">
+                              {rItem?.name || "Unknown item"}
+                            </p>
+                            {isCancelled && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 text-rose-700 border border-rose-200">
+                                CANCELLED
+                              </span>
+                            )}
+                          </div>
                           <p className="text-[10px] text-slate-500 mt-0.5">
                             Qty: {rQuantity}
                             {rLostQuantity > 0 ? ` | Lost: ${rLostQuantity}` : ""}{" "}
@@ -773,7 +801,24 @@ Thank you for choosing ARIHANT COLLECTION!`;
                           {formatCurrencyINR(rRate)}
                         </td>
                         <td className="py-2 px-2 align-middle text-right font-bold text-slate-900">
-                          {formatCurrencyINR(rSubtotal)}
+                          {isCancelled ? (
+                            <div>
+                              <span className="line-through text-slate-400 font-normal text-[11px] block">
+                                {formatCurrencyINR(rRate * rQuantity)}
+                              </span>
+                              {rCancellationCharge > 0 ? (
+                                <span className="text-rose-600 font-bold text-[11px]">
+                                  Fee: {formatCurrencyINR(rCancellationCharge)}
+                                </span>
+                              ) : (
+                                <span className="text-slate-500 font-medium text-[11px]">
+                                  ₹0
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            formatCurrencyINR(rSubtotal)
+                          )}
                         </td>
                       </tr>
                     ),
@@ -827,6 +872,12 @@ Thank you for choosing ARIHANT COLLECTION!`;
                       <span>Total Rent:</span>
                       <span className="font-semibold">{formatCurrencyINR(aggSubtotal)}</span>
                     </div>
+                    {aggCancellationCharges > 0 && (
+                      <div className="flex justify-between text-rose-600">
+                        <span>Item Cancellation Fee:</span>
+                        <span className="font-semibold">+{formatCurrencyINR(aggCancellationCharges)}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <span>Security Deposit:</span>
                       <span className="font-semibold">{formatCurrencyINR(aggSecurity)}</span>

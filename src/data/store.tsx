@@ -35,7 +35,7 @@ interface StoreState {
   addCustomer: (
     customer: Omit<Customer, "_id" | "id" | "customId" | "totalSpent" | "rentals" | "joined" | "createdAt" | "updatedAt">,
   ) => Promise<Customer>;
-  addRental: (rental: Omit<Rental, "_id" | "id" | "customId" | "createdAt" | "updatedAt">) => Promise<Rental>;
+  addRental: (rental: any) => Promise<Rental>;
   updateCustomer: (id: string, data: Partial<Customer>) => Promise<Customer>;
   deleteCustomer: (id: string) => Promise<void>;
   deleteRental: (id: string, billNo?: string) => Promise<void>;

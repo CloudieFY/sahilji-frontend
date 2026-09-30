@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -13,7 +13,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Ban, AlertTriangle, CheckCircle2, RotateCcw, Loader2 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Ban, AlertTriangle, CheckCircle2, Loader2, Layers, Shirt } from "lucide-react";
 import { useStore } from "@/data/store";
 import { formatCurrencyINR } from "@/lib/utils";
 import { toast } from "sonner";
@@ -21,22 +28,33 @@ import type { Rental } from "@/data/mock";
 
 interface CancelOrderDialogProps {
   rental: Rental;
+  targetPieceId?: string;
   trigger?: React.ReactNode;
   disabled?: boolean;
   onCancelled?: () => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function CancelOrderDialog({
   rental,
+  targetPieceId,
   trigger,
   disabled,
   onCancelled,
+  open: controlledOpen,
+  onOpenChange,
 }: CancelOrderDialogProps) {
-  const [open, setOpen] = useState(false);
-  const [cancellationCharge, setCancellationCharge] = useState<string>("0");
-  const [cancellationReason, setCancellationReason] = useState<string>("");
-  const [refundPaid, setRefundPaid] = useState<boolean>(true);
-  const [loading, setLoading] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = (newOpen: boolean) => {
+    if (isControlled) {
+      onOpenChange?.(newOpen);
+    } else {
+      setInternalOpen(newOpen);
+    }
+  };
 
   const { rentals, getItem, getCustomer, cancelRental } = useStore();
 
@@ -45,6 +63,51 @@ export function CancelOrderDialog({
     rental.billNo && rental.billNo.trim() !== ""
       ? rentals.filter((r) => r.billNo === rental.billNo)
       : [rental];
+
+  const hasMultiplePieces = relatedRentals.length > 1;
+
+  const [cancelScope, setCancelScope] = useState<"entire" | "piece">(() =>
+    targetPieceId ? "piece" : "entire"
+  );
+  const [selectedPieceId, setSelectedPieceId] = useState<string>(() =>
+    targetPieceId || rental.id
+  );
+
+  const isPieceMode = hasMultiplePieces && cancelScope === "piece";
+  const activePiece = relatedRentals.find((r) => r.id === selectedPieceId) || rental;
+  const activePieceItem = getItem(activePiece.itemId);
+  const activePieceRate =
+    Number(activePiece.total) ||
+    Number((activePiece as any).rate) ||
+    (activePieceItem ? activePieceItem.pricePerDay : 0);
+
+  const [cancellationCharge, setCancellationCharge] = useState<string>("0");
+  const [cancellationReason, setCancellationReason] = useState<string>("");
+  const [refundPaid, setRefundPaid] = useState<boolean>(true);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      if (targetPieceId) {
+        setCancelScope("piece");
+        setSelectedPieceId(targetPieceId);
+        const p = relatedRentals.find((r) => r.id === targetPieceId);
+        setCancellationCharge(
+          p?.cancellationCharge !== undefined ? String(p.cancellationCharge) : "0"
+        );
+        setCancellationReason(p?.cancellationReason || "");
+        setRefundPaid(p?.refundPaid !== undefined ? Boolean(p.refundPaid) : true);
+      } else {
+        setCancelScope("entire");
+        setSelectedPieceId(rental.id);
+        setCancellationCharge(
+          rental.cancellationCharge !== undefined ? String(rental.cancellationCharge) : "0"
+        );
+        setCancellationReason(rental.cancellationReason || "");
+        setRefundPaid(rental.refundPaid !== undefined ? Boolean(rental.refundPaid) : true);
+      }
+    }
+  }, [open, rental, targetPieceId]);
 
   const customer = getCustomer(rental.customerId);
 
@@ -69,40 +132,48 @@ export function CancelOrderDialog({
   const refundNum = Math.max(0, totalPaid - chargeNum);
   const additionalDue = Math.max(0, chargeNum - totalPaid);
 
-  const isReturned =
-    rental.status === "returned" || relatedRentals.some((r) => r.status === "returned");
-  const isAlreadyCancelled = rental.status === "cancelled";
+  const isPieceAlreadyCancelled = activePiece.status === "cancelled";
+  const isEntireAlreadyCancelled = rental.status === "cancelled";
+  const isCurrentlyCancelled = isPieceMode ? isPieceAlreadyCancelled : isEntireAlreadyCancelled;
 
-  // Returned or already cancelled orders cannot be cancelled
-  if (isReturned || isAlreadyCancelled) {
+  // Returned pieces cannot be cancelled
+  const isReturned = isPieceMode
+    ? activePiece.status === "returned"
+    : rental.status === "returned" || relatedRentals.some((r) => r.status === "returned");
+
+  if (!isControlled && (isReturned || isCurrentlyCancelled)) {
     return null;
   }
 
   async function handleConfirmCancel() {
     if (isReturned) {
-      toast.error("Returned order cannot be cancelled (वापस हो चुका ऑर्डर कैंसिल नहीं हो सकता)।");
+      toast.error("Returned order or item cannot be cancelled (वापस हो चुका आइटम कैंसिल नहीं हो सकता)।");
       setOpen(false);
       return;
     }
 
-    if (isAlreadyCancelled) {
-      toast.info("This order is already cancelled.");
-      setOpen(false);
-      return;
-    }
+    const isEntire = !isPieceMode;
+    const targetRentalToCancel = isEntire ? rental : activePiece;
 
     setLoading(true);
     try {
-      const result = await cancelRental(rental.id, {
+      const result = await cancelRental(targetRentalToCancel.id, {
         cancellationCharge: chargeNum,
         cancellationReason: cancellationReason.trim(),
         refundPaid,
-        cancelEntireBill: true,
+        cancelEntireBill: isEntire,
       });
 
-      toast.success(
-        `Order ${result.billNo} cancelled successfully. Refund: ${formatCurrencyINR(result.refundAmount)}`,
-      );
+      if (isEntire) {
+        toast.success(
+          `Order ${result.billNo || rental.billNo || rental.id} cancelled. Refund: ${formatCurrencyINR(result.refundAmount ?? refundNum)}`
+        );
+      } else {
+        const pieceName = activePieceItem?.name || activePiece.itemNo || "Piece";
+        toast.success(
+          `Item "${pieceName}" cancelled with cancellation fee ${formatCurrencyINR(chargeNum)}.`
+        );
+      }
       setOpen(false);
       if (onCancelled) onCancelled();
     } catch (err: any) {
@@ -115,36 +186,124 @@ export function CancelOrderDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {trigger ? (
-          trigger
-        ) : (
+      {trigger ? (
+        <DialogTrigger asChild>{trigger}</DialogTrigger>
+      ) : !isControlled ? (
+        <DialogTrigger asChild>
           <Button
             type="button"
             size="icon"
             variant="outline"
             className="h-8 w-8 border-rose-500/30 text-rose-500 hover:bg-rose-500/10 hover:text-rose-600 bg-transparent"
-            disabled={disabled || isAlreadyCancelled}
-            title={isAlreadyCancelled ? "Order already cancelled" : "Cancel Order"}
-            aria-label="Cancel order"
+            disabled={disabled || isCurrentlyCancelled}
+            title={isCurrentlyCancelled ? "Already cancelled" : "Cancel"}
+            aria-label="Cancel order or piece"
           >
             <Ban className="h-4 w-4" />
           </Button>
-        )}
-      </DialogTrigger>
+        </DialogTrigger>
+      ) : null}
 
       <DialogContent className="max-w-lg bg-card border-border text-foreground">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-rose-500 text-lg font-serif">
             <Ban className="h-5 w-5" />
-            Cancel Rental Order
+            {isPieceMode
+              ? isCurrentlyCancelled
+                ? "Edit Piece Cancellation Fee"
+                : "Cancel Individual Piece"
+              : isCurrentlyCancelled
+              ? "Edit Cancellation Charges"
+              : "Cancel Rental Order"}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground text-xs">
-            Cancel this order, apply cancellation charges, and process customer refund.
+            {isPieceMode
+              ? "Cancel only this selected piece from the bill and apply cancellation charges."
+              : "Cancel this entire order, apply cancellation charges, and process customer refund."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
+          {/* Multi-piece scope selector if bill has multiple pieces */}
+          {hasMultiplePieces && (
+            <div className="flex rounded-lg border border-border p-1 bg-secondary/30">
+              <button
+                type="button"
+                onClick={() => {
+                  setCancelScope("piece");
+                  setCancellationCharge(
+                    activePiece.cancellationCharge !== undefined
+                      ? String(activePiece.cancellationCharge)
+                      : "0"
+                  );
+                }}
+                className={`flex-1 py-1.5 px-3 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-1.5 ${
+                  isPieceMode
+                    ? "bg-rose-600 text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Shirt className="h-3.5 w-3.5" />
+                Cancel 1 Piece Only
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCancelScope("entire");
+                  setCancellationCharge(
+                    rental.cancellationCharge !== undefined
+                      ? String(rental.cancellationCharge)
+                      : "0"
+                  );
+                }}
+                className={`flex-1 py-1.5 px-3 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-1.5 ${
+                  !isPieceMode
+                    ? "bg-rose-600 text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Layers className="h-3.5 w-3.5" />
+                Cancel Full Order ({relatedRentals.length} Items)
+              </button>
+            </div>
+          )}
+
+          {/* Piece selection dropdown when in single piece mode */}
+          {isPieceMode && hasMultiplePieces && (
+            <div className="space-y-1.5 p-3 rounded-lg border border-rose-500/20 bg-rose-500/5">
+              <Label className="text-xs font-semibold text-rose-600 dark:text-rose-400">
+                Select Piece to Cancel (कैंसिल करने के लिए पीस चुनें):
+              </Label>
+              <Select
+                value={selectedPieceId}
+                onValueChange={(val) => {
+                  setSelectedPieceId(val);
+                  const p = relatedRentals.find((r) => r.id === val);
+                  if (p) {
+                    setCancellationCharge(
+                      p.cancellationCharge !== undefined ? String(p.cancellationCharge) : "0"
+                    );
+                    setCancellationReason(p.cancellationReason || "");
+                  }
+                }}
+              >
+                <SelectTrigger className="h-9 text-xs bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {relatedRentals.map((r, i) => {
+                    const itm = getItem(r.itemId);
+                    return (
+                      <SelectItem key={r.id} value={r.id}>
+                        Piece {i + 1}: ({r.itemNo || itm?.customId || "Item"}) {itm?.name || "Item"} - {formatCurrencyINR(r.total || (itm?.pricePerDay ?? 0))} {r.status === "cancelled" ? "(Cancelled)" : ""}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           {/* Order Info & Customer */}
           <div className="p-3 rounded-lg border border-border bg-secondary/30 space-y-1.5 text-xs">
             <div className="flex justify-between items-center">
@@ -159,32 +318,41 @@ export function CancelOrderDialog({
                 {customer?.name || "Customer"} {customer?.phone ? `(${customer.phone})` : ""}
               </span>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Pieces in Bill:</span>
-              <span className="font-medium text-foreground">
-                {relatedRentals.length} item{relatedRentals.length > 1 ? "s" : ""}{" "}
-                (
-                {relatedRentals
-                  .map((r) => getItem(r.itemId)?.name || r.itemNo || r.itemId)
-                  .join(", ")}
-                )
-              </span>
-            </div>
+            {isPieceMode ? (
+              <div className="flex justify-between items-center pt-1 border-t border-border/50">
+                <span className="text-muted-foreground">Cancelling Item:</span>
+                <span className="font-semibold text-rose-600 dark:text-rose-400">
+                  ({activePiece.itemNo || activePieceItem?.customId || "Item"}) {activePieceItem?.name || "Item"}
+                </span>
+              </div>
+            ) : (
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Pieces in Bill:</span>
+                <span className="font-medium text-foreground">
+                  {relatedRentals.length} item{relatedRentals.length > 1 ? "s" : ""}{" "}
+                  (
+                  {relatedRentals
+                    .map((r) => getItem(r.itemId)?.name || r.itemNo || r.itemId)
+                    .join(", ")}
+                  )
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Financial Summary */}
           <div className="grid grid-cols-2 gap-3 text-center">
             <div className="p-3 rounded-lg border border-border bg-background">
               <div className="text-[11px] text-muted-foreground uppercase tracking-wider">
-                Total Order Value
+                {isPieceMode ? "Piece Rent Value" : "Total Order Value"}
               </div>
               <div className="text-base font-bold text-foreground mt-0.5">
-                {formatCurrencyINR(totalOrderValue)}
+                {formatCurrencyINR(isPieceMode ? activePieceRate : totalOrderValue)}
               </div>
             </div>
             <div className="p-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5">
               <div className="text-[11px] text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-                Advance Paid So Far
+                Advance Paid on Bill
               </div>
               <div className="text-base font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
                 {formatCurrencyINR(totalPaid)}
@@ -198,7 +366,7 @@ export function CancelOrderDialog({
               <Label htmlFor="cancellationCharge" className="text-xs font-medium">
                 Cancellation Charges (कटौती शुल्क)
               </Label>
-              <div className="flex gap-1.5">
+              <div className="flex gap-1.5 flex-wrap">
                 <Button
                   type="button"
                   size="sm"
@@ -208,7 +376,29 @@ export function CancelOrderDialog({
                 >
                   ₹0 (Full Refund)
                 </Button>
-                {totalPaid > 0 && (
+                {isPieceMode && activePieceRate > 0 && (
+                  <>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                      onClick={() => setCancellationCharge(String(Math.round(activePieceRate * 0.5)))}
+                    >
+                      50% ({formatCurrencyINR(Math.round(activePieceRate * 0.5))})
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                      onClick={() => setCancellationCharge(String(activePieceRate))}
+                    >
+                      Keep Full ({formatCurrencyINR(activePieceRate)})
+                    </Button>
+                  </>
+                )}
+                {!isPieceMode && totalPaid > 0 && (
                   <Button
                     type="button"
                     size="sm"
@@ -239,7 +429,30 @@ export function CancelOrderDialog({
           </div>
 
           {/* Refund Calculation Result Banner */}
-          {chargeNum <= totalPaid ? (
+          {isPieceMode ? (
+            <div className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 flex items-start gap-3">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              <div className="space-y-1 flex-1">
+                <div className="text-xs text-muted-foreground">
+                  Piece Cancellation Fee Applied (आइटम कटौती शुल्क):
+                </div>
+                <div className="text-xl font-bold text-rose-600 dark:text-rose-400 font-sans">
+                  {formatCurrencyINR(chargeNum)}
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  {chargeNum <= totalPaid ? (
+                    <>
+                      Deducted from bill advance. Remaining advance {formatCurrencyINR(totalPaid - chargeNum)} stays credited towards active items on the bill.
+                    </>
+                  ) : (
+                    <>
+                      Cancellation fee exceeds current bill advance by {formatCurrencyINR(chargeNum - totalPaid)}.
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : chargeNum <= totalPaid ? (
             <div className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 flex items-start gap-3">
               <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
               <div className="space-y-1 flex-1">
@@ -272,8 +485,8 @@ export function CancelOrderDialog({
             </div>
           )}
 
-          {/* Refund Paid Checkbox */}
-          {refundNum > 0 && (
+          {/* Refund Paid Checkbox (for entire bill cancel or if refund is handed back directly) */}
+          {!isPieceMode && refundNum > 0 && (
             <div className="flex items-center space-x-2 pt-1">
               <Checkbox
                 id="refundPaid"
@@ -305,9 +518,19 @@ export function CancelOrderDialog({
           </div>
 
           <div className="text-[11px] text-muted-foreground bg-secondary/30 p-2.5 rounded border border-border/50">
-            ℹ️ <strong>Note:</strong> Cancelling this order will release all{" "}
-            {relatedRentals.length} piece{relatedRentals.length > 1 ? "s" : ""} back into
-            inventory as <strong>Available</strong> immediately.
+            {isPieceMode ? (
+              <>
+                ℹ️ <strong>Note:</strong> Cancelling this piece will release it back into
+                inventory as <strong>Available</strong> immediately. The remaining pieces on this
+                bill will stay <strong>Active</strong>.
+              </>
+            ) : (
+              <>
+                ℹ️ <strong>Note:</strong> Cancelling this order will release all{" "}
+                {relatedRentals.length} piece{relatedRentals.length > 1 ? "s" : ""} back into
+                inventory as <strong>Available</strong> immediately.
+              </>
+            )}
           </div>
         </div>
 
@@ -331,12 +554,16 @@ export function CancelOrderDialog({
             {loading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Cancelling...
+                {isCurrentlyCancelled ? "Updating..." : "Cancelling..."}
               </>
             ) : (
               <>
                 <Ban className="mr-1.5 h-4 w-4" />
-                Confirm Order Cancellation
+                {isCurrentlyCancelled
+                  ? "Update Cancellation Fee"
+                  : isPieceMode
+                  ? "Confirm Piece Cancellation"
+                  : "Confirm Order Cancellation"}
               </>
             )}
           </Button>

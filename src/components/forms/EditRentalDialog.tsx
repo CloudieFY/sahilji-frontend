@@ -23,12 +23,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-import { Plus, Calendar, Trash2, IndianRupee, PlusCircle, Loader2 } from "lucide-react";
+import { Plus, Calendar, Trash2, IndianRupee, PlusCircle, Loader2, Ban } from "lucide-react";
 import { useStore } from "@/data/store";
 import { formatCurrencyINR, getBillRepresentative } from "@/lib/utils";
 import { printInvoiceHtml } from "@/lib/invoiceTemplate";
 
 import type { Rental, RentalStatus } from "@/data/mock";
+import { AddPieceDialog } from "./AddPieceDialog";
+import { CancelOrderDialog } from "./CancelOrderDialog";
 
 const schema = z
   .object({
@@ -225,7 +227,7 @@ export function EditRentalDialog({
   trigger: React.ReactNode;
   disabled?: boolean;
 }) {
-  const { items, getItem, getCustomer, updateRental, updateItem, rentals, deleteRental } = useStore();
+  const { items, getItem, getCustomer, updateRental, updateItem, rentals, deleteRental, addRental } = useStore();
 
   const rentalItem = useMemo(() => getItem(rental.itemId), [getItem, rental.itemId]);
   const customer = useMemo(() => getCustomer(rental.customerId), [getCustomer, rental.customerId]);
@@ -237,6 +239,17 @@ export function EditRentalDialog({
   const [quickPayAmount, setQuickPayAmount] = useState("");
   const [collectingPayment, setCollectingPayment] = useState(false);
   const quickPayInputRef = useRef<HTMLInputElement>(null);
+
+  const [addInventoryOpen, setAddInventoryOpen] = useState(false);
+  const [addBillPieceOpen, setAddBillPieceOpen] = useState(false);
+  const [newPieceItemId, setNewPieceItemId] = useState("");
+  const [newPieceItemNo, setNewPieceItemNo] = useState("");
+  const [newPieceRate, setNewPieceRate] = useState<number>(0);
+  const [newPieceDeliveryDate, setNewPieceDeliveryDate] = useState(today());
+  const [newPieceEndDate, setNewPieceEndDate] = useState(today());
+  const [newPieceLoading, setNewPieceLoading] = useState(false);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [selectedCancelPiece, setSelectedCancelPiece] = useState<Rental | null>(null);
 
   // Find the main rental that holds bill-level info (discount, security, payments).
   // Uses getBillRepresentative so this always agrees with the backend's own
@@ -365,6 +378,8 @@ export function EditRentalDialog({
       entryItem ? entryItem.pricePerDay * daysBetween(entry.startDate || today(), entry.endDate || today()) : 0,
     );
     return {
+      itemId: entry.itemId ?? "",
+      itemNo: entry.itemNo || entryItem?.customId || entry.itemId || "",
       billNo: entry.billNo ?? "",
       address: entry.address ?? "",
       deliveryDate: entry.deliveryDate ? entry.deliveryDate.slice(0, 10) : today(),
@@ -430,10 +445,12 @@ const rentalQuantity = isSafaRental ? Math.max(1, Number(form.quantity) || 1) : 
     console.log('[EditRentalDialog] Computing pieces and aggregates...');
     let aggSubtotalLocal = 0;
     let aggPenaltyLocal = 0;
+    let aggCancellationChargesLocal = 0;
 
     const pieces = relatedRentals.map((r) => {
       const editor = itemEditors[r.id] || createItemEditorState(r);
       const rItem = getItem(r.itemId);
+      const isCancelled = editor.status === "cancelled" || r.status === "cancelled";
       const rStartDate = editor.startDate;
       const rEndDate = editor.endDate;
       const rDeliveryDate = editor.deliveryDate;
@@ -445,15 +462,19 @@ const rentalQuantity = isSafaRental ? Math.max(1, Number(form.quantity) || 1) : 
       const rLostQuantity = Number(editor.lostQuantity) || 0;
       const d = daysBetween(rStartDate, rEndDate);
       const rRate = Number(editor.rate) || getRentalAmount(r, rItem ? rItem.pricePerDay * daysBetween(rStartDate, rEndDate) : 0);
-      const rSubtotal = rRate * rQuantity;
+      const rSubtotal = isCancelled ? 0 : rRate * rQuantity;
+      const rCancelCharge = isCancelled ? (Number((r as any).cancellationCharge) || 0) : 0;
 
       aggSubtotalLocal += rSubtotal;
       aggPenaltyLocal += Number(r.penalty) || 0;
+      aggCancellationChargesLocal += rCancelCharge;
 
       return {
         r,
         rItem,
         isCurrent: false,
+        isCancelled,
+        rCancelCharge,
         rStartDate,
         rEndDate,
         rDeliveryDate,
@@ -476,19 +497,16 @@ const rentalQuantity = isSafaRental ? Math.max(1, Number(form.quantity) || 1) : 
     // The form.payments array is the single source of truth for what is currently being edited.
     const aggPaidLocal = (form.payments || []).reduce((acc: number, p: { amount: number }) => acc + (Number(p.amount) || 0), 0);
 
-    // Total Bill must be derived from the LIVE edited subtotal (rate x qty across all
-    // pieces) so that rate/qty edits and recalculations flow into the balance and the
-    // generated invoice. Using the stale stored total (aggPiecesTotalFromDb) meant
-    // "Total Rent" updated but "Total Bill" / "Balance" did not. This mirrors
-    // NewRentalDialog: netTotal = piecesTotal - discount + security.
-    const aggTotalLocal = aggSubtotalLocal - aggDiscountLocal + aggSecurityLocal + aggPenaltyLocal;
+    // Total Bill is derived from active subtotal + any cancellation charges on cancelled pieces - discount + security + penalty
+    const aggTotalLocal = aggSubtotalLocal + aggCancellationChargesLocal - aggDiscountLocal + aggSecurityLocal + aggPenaltyLocal;
     const aggFinalDueLocal = Math.max(0, aggTotalLocal - aggPaidLocal);
     const aggSecurityRefundDueLocal = form.status === "returned" && form.securityReturned ? 0 : aggSecurityLocal;
-    console.log('[EditRentalDialog] Aggregates computed:', { aggSubtotalLocal, aggDiscountLocal, aggSecurityLocal, aggPaidLocal, aggTotalLocal, aggFinalDueLocal });
+    console.log('[EditRentalDialog] Aggregates computed:', { aggSubtotalLocal, aggCancellationChargesLocal, aggDiscountLocal, aggSecurityLocal, aggPaidLocal, aggTotalLocal, aggFinalDueLocal });
 
     return {
       pieces,
       aggSubtotal: aggSubtotalLocal,
+      aggCancellationCharges: aggCancellationChargesLocal,
       aggPaid: aggPaidLocal,
       aggSecurity: aggSecurityLocal,
       aggDiscount: aggDiscountLocal,
@@ -500,6 +518,7 @@ const rentalQuantity = isSafaRental ? Math.max(1, Number(form.quantity) || 1) : 
 
   const piecesData = computedPieces.pieces;
   const aggSubtotal = computedPieces.aggSubtotal;
+  const aggCancellationCharges = computedPieces.aggCancellationCharges;
   const aggPaid = computedPieces.aggPaid;
   const aggDiscount = computedPieces.aggDiscount;
   const aggSecurity = computedPieces.aggSecurity;
@@ -536,12 +555,17 @@ const rentalQuantity = isSafaRental ? Math.max(1, Number(form.quantity) || 1) : 
     else if (form.status === "overdue") invoiceTitle = "OVERDUE FINAL BILL";
     else if (form.status === "cancelled") invoiceTitle = "CANCELLATION INVOICE";
 
-    const thermalPiecesHtml = piecesData.map(({ r, rItem, rDeliveryDate, rEndDate, rDeliveryTime, rDeliveryTimePeriod, rEndTime, rEndTimePeriod, rRate, rQuantity, rLostQuantity }) => `
+    const thermalPiecesHtml = piecesData.map(({ r, rItem, isCancelled, rCancelCharge, rDeliveryDate, rEndDate, rDeliveryTime, rDeliveryTimePeriod, rEndTime, rEndTimePeriod, rRate, rQuantity, rLostQuantity }) => `
       ${rItem?.image ? `<div style="text-align: center; margin-bottom: 6px;"><img src="${rItem.image}" style="max-height: 80px; max-width: 100%; border-radius: 4px; object-fit: cover;" /></div>` : ""}
-      <div class="thermal-item-name">${rItem?.name || "Unknown item"}</div>
+      <div class="thermal-item-name">${rItem?.name || "Unknown item"} ${isCancelled ? `<span style="color: #e11d48; font-size: 10px;">[CANCELLED]</span>` : ""}</div>
       <div class="thermal-row"><span>Item No</span><span>${r.itemNo || r.itemId}</span></div>
-      <div class="thermal-row"><span>Dates</span><span>Del: ${formatDate(rDeliveryDate.slice(0, 10))}${rDeliveryTime ? ` ${rDeliveryTime}` : ""}${rDeliveryTimePeriod ? ` (${rDeliveryTimePeriod})` : ""} | Return: ${formatDate(rEndDate.slice(0, 10))}${rEndTime ? ` ${rEndTime}` : ""}${rEndTimePeriod ? ` (${rEndTimePeriod})` : ""}</span></div>
-      <div class="thermal-row"><span>Qty / Rate</span><span>${rQuantity} x ${formatCurrencyINR(rRate)}</span></div>
+      ${isCancelled ? `
+        <div class="thermal-row" style="color: #e11d48;"><span>Piece Status</span><span>CANCELLED</span></div>
+        ${rCancelCharge > 0 ? `<div class="thermal-row" style="color: #e11d48;"><span>Cancellation Fee</span><span>${formatCurrencyINR(rCancelCharge)}</span></div>` : ""}
+      ` : `
+        <div class="thermal-row"><span>Dates</span><span>Del: ${formatDate(rDeliveryDate.slice(0, 10))}${rDeliveryTime ? ` ${rDeliveryTime}` : ""}${rDeliveryTimePeriod ? ` (${rDeliveryTimePeriod})` : ""} | Return: ${formatDate(rEndDate.slice(0, 10))}${rEndTime ? ` ${rEndTime}` : ""}${rEndTimePeriod ? ` (${rEndTimePeriod})` : ""}</span></div>
+        <div class="thermal-row"><span>Qty / Rate</span><span>${rQuantity} x ${formatCurrencyINR(rRate)}</span></div>
+      `}
       ${rLostQuantity > 0 ? `<div class="thermal-row"><span>Lost Safa</span><span>${rLostQuantity}</span></div>` : ""}
       <div class="thermal-divider"></div>
     `).join("");
@@ -567,6 +591,7 @@ const rentalQuantity = isSafaRental ? Math.max(1, Number(form.quantity) || 1) : 
         ${thermalPiecesHtml}
 
         <div class="thermal-row"><span>Total Rent</span><span>${formatCurrencyINR(aggSubtotal)}</span></div>
+        ${aggCancellationCharges > 0 ? `<div class="thermal-row" style="color: #e11d48;"><span>Item Cancel Fee</span><span>+${formatCurrencyINR(aggCancellationCharges)}</span></div>` : ""}
         <div class="thermal-row"><span>Security Received</span><span>${formatCurrencyINR(aggSecurity)}</span></div>
         <div class="thermal-row"><span>Discount</span><span>-${formatCurrencyINR(aggDiscount)}</span></div>
         <div class="thermal-row"><span>Total Bill</span><span>${formatCurrencyINR(aggTotal)}</span></div>
@@ -596,7 +621,9 @@ const rentalQuantity = isSafaRental ? Math.max(1, Number(form.quantity) || 1) : 
     `;
   }
 
-  const invoiceNote = (form.status === "returned" || form.status === "overdue")
+  const invoiceNote = form.status === "cancelled"
+    ? "Cancellation bill confirms deducted charges and refund status."
+    : (form.status === "returned" || form.status === "overdue")
     ? "Final bill confirms rental dues and security refund clearance."
     : form.status === "active"
     ? "Delivery invoice reflects the current balance. Set status to Returned for the final bill."
@@ -604,6 +631,10 @@ const rentalQuantity = isSafaRental ? Math.max(1, Number(form.quantity) || 1) : 
 
   const handleStatusChange = (v: RentalStatus) => {
     console.log('[EditRentalDialog] handleStatusChange called with status:', v);
+    if (v === "cancelled") {
+      setCancelDialogOpen(true);
+      return;
+    }
     if (v === "returned") {
       const confirmed = window.confirm("Are all dues clear? Please confirm that all balances are settled before marking as returned.");
       if (!confirmed) return;
@@ -695,6 +726,20 @@ const rentalQuantity = isSafaRental ? Math.max(1, Number(form.quantity) || 1) : 
     else if (form.status === "active") invoiceTitle = "Delivery Invoice";
     else if (form.status === "returned") invoiceTitle = "Final Invoice";
     else if (form.status === "overdue") invoiceTitle = "Overdue Final Bill";
+    else if (form.status === "cancelled") invoiceTitle = "Cancellation Invoice";
+
+    const financialSummary = form.status === "cancelled" ? `
+*Status:* CANCELLED
+*Advance Paid:* ${formatCurrencyINR(aggPaid)}
+*Cancellation Charge Deducted:* -${formatCurrencyINR((mainBillRental as any).cancellationCharge || 0)}
+*Refund ${(mainBillRental as any).refundPaid ? "Returned" : "Due"}:* ${formatCurrencyINR((mainBillRental as any).refundAmount ?? Math.max(0, aggPaid - ((mainBillRental as any).cancellationCharge || 0)))}` : `
+*Total Rent:* ${formatCurrencyINR(aggSubtotal)}
+*Security Received:* ${formatCurrencyINR(aggSecurity)}
+*Discount:* -${formatCurrencyINR(aggDiscount)}
+*Total Bill:* ${formatCurrencyINR(aggTotal)}
+*Amount Paid:* ${formatCurrencyINR(aggPaid)}
+*Security Refund:* ${formatCurrencyINR(aggSecurityRefundDue)}
+*Balance:* ${formatCurrencyINR(aggFinalDue)}`;
 
     const message = `*ARIHANT COLLECTION  - ${invoiceTitle}*
       
@@ -703,14 +748,7 @@ const rentalQuantity = isSafaRental ? Math.max(1, Number(form.quantity) || 1) : 
 *Client:* ${customer?.name || rental.customerId}
 *Pieces:* 
 ${piecesData.map((p: any) => `- ${p.rItem?.name || "Unknown"} (${p.r.itemNo || p.r.itemId}) [Qty: ${p.rQuantity}${p.rLostQuantity > 0 ? `, Lost: ${p.rLostQuantity}` : ""} | Del: ${formatDate(p.rDeliveryDate.slice(0, 10))}${p.rDeliveryTime ? ` ${p.rDeliveryTime}` : ""}${p.rDeliveryTimePeriod ? ` (${p.rDeliveryTimePeriod})` : ""} | Return: ${formatDate(p.rEndDate.slice(0, 10))}${p.rEndTime ? ` ${p.rEndTime}` : ""}${p.rEndTimePeriod ? ` (${p.rEndTimePeriod})` : ""}] - ${formatCurrencyINR(p.rSubtotal)}`).join("\n")}
-
-*Total Rent:* ${formatCurrencyINR(aggSubtotal)}
-*Security Received:* ${formatCurrencyINR(aggSecurity)}
-*Discount:* -${formatCurrencyINR(aggDiscount)}
-*Total Bill:* ${formatCurrencyINR(aggTotal)}
-*Amount Paid:* ${formatCurrencyINR(aggPaid)}
-*Security Refund:* ${formatCurrencyINR(aggSecurityRefundDue)}
-*Balance:* ${formatCurrencyINR(aggFinalDue)}
+${financialSummary}
 
 Thank you for choosing ARIHANT COLLECTION !`;
 
@@ -724,16 +762,20 @@ Thank you for choosing ARIHANT COLLECTION !`;
     else if (form.status === "active") invoiceTitle = "Delivery Invoice";
     else if (form.status === "returned") invoiceTitle = "Final Invoice";
     else if (form.status === "overdue") invoiceTitle = "Overdue Final Bill";
+    else if (form.status === "cancelled") invoiceTitle = "Cancellation Invoice";
     const logoUrl = typeof window !== "undefined" ? `${window.location.origin}/logo.png` : "/logo.png";
 
 
-    const piecesHtml = piecesData.map(({ r, rItem, rStartDate, rEndDate, rDeliveryDate, rDeliveryTime, rDeliveryTimePeriod, rEndTime, rEndTimePeriod, rRate, rSubtotal, rQuantity, rLostQuantity }) => `
-      <tr>
+    const piecesHtml = piecesData.map(({ r, rItem, isCancelled, rCancelCharge, rStartDate, rEndDate, rDeliveryDate, rDeliveryTime, rDeliveryTimePeriod, rEndTime, rEndTimePeriod, rRate, rSubtotal, rQuantity, rLostQuantity }) => `
+      <tr style="${isCancelled ? "background-color: #fff1f2;" : ""}">
         <td>${rItem?.image ? `<img src="${rItem.image}" style="width: 35px; height: 45px; object-fit: cover; border-radius: 3px;" />` : ""}</td>
-        <td><strong>${rItem?.name || "Unknown item"}</strong><br/><span style="font-size: 9px; color: #666;">Qty: ${rQuantity}${rLostQuantity > 0 ? ` | Lost: ${rLostQuantity}` : ""} | Del: ${formatDate(rDeliveryDate.slice(0, 10))}${rDeliveryTime ? ` ${rDeliveryTime}` : ""}${rDeliveryTimePeriod ? ` (${rDeliveryTimePeriod})` : ""} | Return: ${formatDate(rEndDate.slice(0, 10))}${rEndTime ? ` ${rEndTime}` : ""}${rEndTimePeriod ? ` (${rEndTimePeriod})` : ""}</span></td>
+        <td>
+          <strong>${rItem?.name || "Unknown item"}</strong>
+          ${isCancelled ? `<br/><span style="color: #e11d48; font-weight: bold; font-size: 9px;">[CANCELLED${rCancelCharge > 0 ? ` - Fee: ${formatCurrencyINR(rCancelCharge)}` : ""}]</span>` : `<br/><span style="font-size: 9px; color: #666;">Qty: ${rQuantity}${rLostQuantity > 0 ? ` | Lost: ${rLostQuantity}` : ""} | Del: ${formatDate(rDeliveryDate.slice(0, 10))}${rDeliveryTime ? ` ${rDeliveryTime}` : ""}${rDeliveryTimePeriod ? ` (${rDeliveryTimePeriod})` : ""} | Return: ${formatDate(rEndDate.slice(0, 10))}${rEndTime ? ` ${rEndTime}` : ""}${rEndTimePeriod ? ` (${rEndTimePeriod})` : ""}</span>`}
+        </td>
         <td>${r.itemNo || r.itemId}</td>
-        <td class="text-right">${formatCurrencyINR(rRate)}</td>
-        <td class="text-right">${formatCurrencyINR(rSubtotal)}</td>
+        <td class="text-right" style="${isCancelled ? "text-decoration: line-through; color: #888;" : ""}">${formatCurrencyINR(rRate)}</td>
+        <td class="text-right">${isCancelled ? (rCancelCharge > 0 ? formatCurrencyINR(rCancelCharge) : "-") : formatCurrencyINR(rSubtotal)}</td>
       </tr>
     `).join("");
 
@@ -816,18 +858,26 @@ Thank you for choosing ARIHANT COLLECTION !`;
         </table>
 
         <div class="summary-box">
-          <div class="row"><span>Total Rent</span><span>${formatCurrencyINR(aggSubtotal)}</span></div>
-          <div class="row"><span>Security Deposit</span><span>${formatCurrencyINR(aggSecurity)}</span></div>
-          <div class="row"><span>Discount</span><span>-${formatCurrencyINR(aggDiscount)}</span></div>
-          <div class="row"><span>Total Bill</span><span>${formatCurrencyINR(aggTotal)}</span></div>
-          ${(form.payments || []).length > 0 ? `
-            <div class="row" style="padding-top: 4px; margin-top: 2px; border-top: 1px solid #eaeaea; flex-direction: column; align-items: flex-start; gap: 2px;">
-              <div style="width: 100%; display: flex; justify-content: space-between;"><strong>Payments Received</strong></div> 
-              ${(form.payments || []).map((p: { date: string; amount: number }) => `<div style="width: 100%; display: flex; justify-content: space-between; font-size: 10px; color: #333;"><span>Paid on ${formatDate(p.date)}</span><span>-${formatCurrencyINR(p.amount)}</span></div>`).join('')}
-            </div>
-          ` : ''}
-          <div class="row"><span>Security Refund</span><span>${formatCurrencyINR(aggSecurityRefundDue)}</span></div>
-          <div class="row total"><span>Balance</span><span>${formatCurrencyINR(aggFinalDue)}</span></div>
+          ${form.status === "cancelled" ? `
+            <div class="row"><span style="color: #e11d48; font-weight: bold;">Status</span><span style="color: #e11d48; font-weight: bold;">CANCELLED</span></div>
+            <div class="row"><span>Total Advance Paid</span><span>${formatCurrencyINR(aggPaid)}</span></div>
+            <div class="row"><span style="color: #e11d48;">Cancellation Charges Deducted</span><span style="color: #e11d48;">-${formatCurrencyINR((mainBillRental as any).cancellationCharge || 0)}</span></div>
+            <div class="row total" style="color: #059669; border-top: 2px solid #059669;"><span>Refund ${(mainBillRental as any).refundPaid ? "Returned" : "Due"}</span><span>${formatCurrencyINR((mainBillRental as any).refundAmount ?? Math.max(0, aggPaid - ((mainBillRental as any).cancellationCharge || 0)))}</span></div>
+          ` : `
+            <div class="row"><span>Total Rent</span><span>${formatCurrencyINR(aggSubtotal)}</span></div>
+            ${aggCancellationCharges > 0 ? `<div class="row"><span style="color: #e11d48;">Item Cancellation Charges</span><span style="color: #e11d48;">+${formatCurrencyINR(aggCancellationCharges)}</span></div>` : ""}
+            <div class="row"><span>Security Deposit</span><span>${formatCurrencyINR(aggSecurity)}</span></div>
+            <div class="row"><span>Discount</span><span>-${formatCurrencyINR(aggDiscount)}</span></div>
+            <div class="row"><span>Total Bill</span><span>${formatCurrencyINR(aggTotal)}</span></div>
+            ${(form.payments || []).length > 0 ? `
+              <div class="row" style="padding-top: 4px; margin-top: 2px; border-top: 1px solid #eaeaea; flex-direction: column; align-items: flex-start; gap: 2px;">
+                <div style="width: 100%; display: flex; justify-content: space-between;"><strong>Payments Received</strong></div> 
+                ${(form.payments || []).map((p: { date: string; amount: number }) => `<div style="width: 100%; display: flex; justify-content: space-between; font-size: 10px; color: #333;"><span>Paid on ${formatDate(p.date)}</span><span>-${formatCurrencyINR(p.amount)}</span></div>`).join('')}
+              </div>
+            ` : ''}
+            <div class="row"><span>Security Refund</span><span>${formatCurrencyINR(aggSecurityRefundDue)}</span></div>
+            <div class="row total"><span>Balance</span><span>${formatCurrencyINR(aggFinalDue)}</span></div>
+          `}
         </div>
 
         <div style="margin-top: 20px; font-size: 10px; color: #555; border-top: 1px solid #eaeaea; padding-top: 10px; line-height: 1.5;">
@@ -1022,7 +1072,7 @@ Thank you for choosing ARIHANT COLLECTION !`;
     const overlappingRental = rentals.find((r) => {
       if (r.id === rental.id) return false;
       if (r.itemId !== rental.itemId) return false;
-      if (r.status === "returned") return false;
+      if (r.status === "returned" || r.status === "cancelled") return false;
 
       const existingStart = new Date(r.startDate || r.deliveryDate || "");
       existingStart.setHours(0, 0, 0, 0);
@@ -1044,15 +1094,17 @@ Thank you for choosing ARIHANT COLLECTION !`;
       const updates = await Promise.all(
         relatedRentals.map(async (entry) => {
           const entryEditor = itemEditors[entry.id] || createItemEditorState(entry);
-          const entryItem = getItem(entry.itemId);
+          const entryItem = getItem(entryEditor.itemId || entry.itemId);
           const entrySubtotal = (Number(entryEditor.rate) || 0) * (isSafaItem(entryItem) ? Math.max(1, Number(entryEditor.quantity) || 1) : 1);
           const payload = {
+            itemId: entryEditor.itemId || entry.itemId,
+            itemNo: entryEditor.itemNo || entry.itemNo,
             billNo: parsed.data.billNo ?? entryEditor.billNo ?? "",
             address: parsed.data.address ?? entryEditor.address ?? "",
             deliveryDate: entryEditor.deliveryDate,
             deliveryTime: entryEditor.deliveryTime,
             deliveryTimePeriod: entryEditor.deliveryTimePeriod,
-            startDate: entryEditor.startDate,
+            startDate: entryEditor.deliveryDate || entryEditor.startDate,
             endDate: entryEditor.endDate,
             endTime: entryEditor.endTime,
             endTimePeriod: entryEditor.endTimePeriod,
@@ -1117,6 +1169,7 @@ Thank you for choosing ARIHANT COLLECTION !`;
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -1141,7 +1194,18 @@ Thank you for choosing ARIHANT COLLECTION !`;
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="status">Status</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="status">Status</Label>
+                  {form.status !== "cancelled" && form.status !== "returned" && (
+                    <button
+                      type="button"
+                      onClick={() => setCancelDialogOpen(true)}
+                      className="text-[11px] text-rose-500 hover:text-rose-600 hover:underline inline-flex items-center gap-1 font-medium"
+                    >
+                      <Ban className="h-3 w-3" /> Cancel order
+                    </button>
+                  )}
+                </div>
                 <Select
                   value={form.status}
                   onValueChange={(v) => handleStatusChange(v as RentalStatus)}
@@ -1150,7 +1214,7 @@ Thank you for choosing ARIHANT COLLECTION !`;
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(["upcoming", "active", "returned", "overdue"] as const).map((s) => (
+                    {(["upcoming", "active", "returned", "overdue", "cancelled"] as const).map((s) => (
                       <SelectItem key={s} value={s}>
                         {s[0].toUpperCase() + s.slice(1)}
                       </SelectItem>
@@ -1171,71 +1235,242 @@ Thank you for choosing ARIHANT COLLECTION !`;
             </div>
           </div>
 
-          {/* Bill Items Section */}
+          {/* Cancelled Order Banner */}
+          {form.status === 'cancelled' && (
+            <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-rose-500 font-semibold text-sm">
+                  <Ban className="h-4 w-4" />
+                  <span>This Order is Cancelled (ऑर्डर रद्द किया गया है)</span>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCancelDialogOpen(true)}
+                  className="h-7 text-xs border-rose-500/40 text-rose-500 hover:bg-rose-500/20"
+                >
+                  <Ban className="h-3 w-3 mr-1" />
+                  Edit Cancellation Fee
+                </Button>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1 text-xs">
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Advance Received:</span>
+                  <span className="font-semibold text-foreground">{formatCurrencyINR(aggPaid)}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Cancellation Charge:</span>
+                  <span className="font-semibold text-rose-500">
+                    {formatCurrencyINR((mainBillRental as any).cancellationCharge || 0)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Refund Amount:</span>
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                    {formatCurrencyINR((mainBillRental as any).refundAmount ?? Math.max(0, aggPaid - ((mainBillRental as any).cancellationCharge || 0)))}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Refund Status:</span>
+                  <span className="font-medium text-foreground">
+                    {(mainBillRental as any).refundPaid ? "✅ Paid to Customer" : "⏳ Pending Refund"}
+                  </span>
+                </div>
+              </div>
+              {(mainBillRental as any).cancellationReason && (
+                <div className="text-[11px] text-muted-foreground pt-1 border-t border-rose-500/20">
+                  <span className="font-medium text-foreground">Reason:</span> {(mainBillRental as any).cancellationReason}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Rental Pieces Section */}
           <div className="space-y-4 rounded-lg border border-border bg-secondary/10 p-4">
             <div className="flex items-center justify-between border-b border-border pb-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Bill Items</h3>
-              <span className="text-[11px] text-muted-foreground">{relatedRentals.length} item(s)</span>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Rental Pieces ({relatedRentals.length})
+              </h3>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-xs text-gold hover:text-gold/80 hover:bg-gold/10 inline-flex items-center gap-1 h-7"
+                onClick={() => {
+                  setNewPieceDeliveryDate(form.deliveryDate || today());
+                  setNewPieceEndDate(form.endDate || today());
+                  setAddBillPieceOpen(true);
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" /> Add piece
+              </Button>
             </div>
-            <div className="space-y-3">
-              {relatedRentals.map((entry) => {
-                const entryItem = getItem(entry.itemId);
+            <div className="space-y-4">
+              {relatedRentals.map((entry, index) => {
                 const editor = itemEditors[entry.id];
                 if (!editor) return null; // Guard against rendering before editor state is ready
+                const currentItemId = editor.itemId || entry.itemId;
+                const entryItem = getItem(currentItemId);
                 const entryIsSafa = isSafaItem(entryItem); 
                 const entryQty = entryIsSafa ? Math.max(1, Number(editor.quantity) || 1) : 1;
                 const entrySubtotal = (Number(editor.rate) || 0) * entryQty;
                 return (
-                  <div key={entry.id} className="rounded-md border border-border bg-background p-3 space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {entryItem?.name || `Missing piece (${entry.itemId || "unknown"})`}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground">
-                          Item No: {entry.itemNo || entry.itemId}
-                        </p>
+                  <div key={entry.id} className="rounded-md border border-border bg-background p-4 space-y-3 shadow-sm">
+                    {/* Piece Header Bar */}
+                    <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-semibold text-gold uppercase tracking-wider">
+                          Piece {index + 1} ({editor.itemNo || entryItem?.customId || "Piece"})
+                        </span>
+                        {(entry.status === 'cancelled' || editor.status === 'cancelled') && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-600/15 text-rose-600 border border-rose-500/30 flex items-center gap-1">
+                            <Ban className="h-3 w-3" /> Cancelled
+                            {Number(entry.cancellationCharge || 0) > 0 && ` (Fee: ${formatCurrencyINR(Number(entry.cancellationCharge))})`}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <div className="text-right text-xs text-muted-foreground">
-                          <p className="font-semibold text-foreground">{formatCurrencyINR(entrySubtotal)}</p>
-                          <p>Qty: {entryQty}</p>
-                        </div>
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                          title="Remove this item"
-                          onClick={async () => {
-                            if (!window.confirm(`Remove "${entryItem?.name || entry.itemId}" from this bill?`)) return;
-                            try {
-                              await deleteRental(entry.id);
-                              toast.success("Item removed from bill");
-                            } catch (err) {
-                              console.error(err);
-                              toast.error("Failed to remove item");
-                            }
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <span className={`text-xs font-semibold ${entry.status === 'cancelled' || editor.status === 'cancelled' ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+                          {formatCurrencyINR(entrySubtotal)}
+                        </span>
+
+                        {/* Cancel/Edit Cancellation Fee Button for this Piece */}
+                        {(entry.status === 'cancelled' || editor.status === 'cancelled') ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-[11px] px-2 border-rose-500/30 text-rose-500 hover:bg-rose-500/10 inline-flex items-center gap-1"
+                            title="Edit cancellation charge for this piece"
+                            onClick={() => {
+                              setSelectedCancelPiece(entry);
+                              setCancelDialogOpen(true);
+                            }}
+                          >
+                            <Ban className="h-3.5 w-3.5" /> Edit Fee
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-[11px] px-2 text-rose-500 hover:bg-rose-500/10 hover:text-rose-600 inline-flex items-center gap-1"
+                            title="Cancel this piece with cancellation charges"
+                            onClick={() => {
+                              setSelectedCancelPiece(entry);
+                              setCancelDialogOpen(true);
+                            }}
+                          >
+                            <Ban className="h-3.5 w-3.5" /> Cancel Item
+                          </Button>
+                        )}
+
+                        {relatedRentals.length > 1 && (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            title="Remove this item"
+                            onClick={async () => {
+                              if (!window.confirm(`Remove "${entryItem?.name || entry.itemNo || "this piece"}" from this bill?`)) return;
+                              try {
+                                await deleteRental(entry.id);
+                                toast.success("Item removed from bill");
+                              } catch (err) {
+                                console.error(err);
+                                toast.error("Failed to remove item");
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="grid gap-2">
-                        <Label>Rate (INR)</Label>
+                    {/* Select Piece, Item No, Rate (INR) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 mb-2">
+                      {/* Select Piece Dropdown */}
+                      <div className="grid gap-1.5 sm:col-span-5 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs font-medium">Select Piece</Label>
+                          <button
+                            type="button"
+                            onClick={() => setAddInventoryOpen(true)}
+                            className="text-[11px] text-gold hover:underline inline-flex items-center gap-1"
+                          >
+                            <Plus className="h-3 w-3" /> New inventory item
+                          </button>
+                        </div>
+                        <Select
+                          value={editor.itemId || entry.itemId}
+                          onValueChange={(selectedItemId) => {
+                            const selectedItem = items.find((i) => i.id === selectedItemId || i.customId === selectedItemId);
+                            updateItemEditor(entry.id, {
+                              itemId: selectedItem?.id || selectedItemId,
+                              itemNo: selectedItem?.customId || selectedItem?.id || "",
+                              rate: selectedItem?.pricePerDay ?? editor.rate,
+                              quantity: isSafaItem(selectedItem) ? Math.max(1, Number(editor.quantity) || 1) : 1,
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="[&>span]:truncate h-10">
+                            <SelectValue placeholder="Choose a piece..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {items.map((i) => (
+                              <SelectItem key={i.id} value={i.id}>
+                                ({i.customId || i.id}) {i.name} - {formatCurrencyINR(i.pricePerDay)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Item No Input */}
+                      <div className="grid gap-1.5 sm:col-span-4 min-w-0">
+                        <Label className="text-xs font-medium">Item No</Label>
                         <Input
+                          className="h-10"
+                          value={editor.itemNo ?? ""}
+                          placeholder="Item No (e.g. 2990)"
+                          onChange={(e) => {
+                            const itemNo = e.target.value;
+                            const found = items.find((i) => i.customId === itemNo || i.id === itemNo);
+                            if (found) {
+                              updateItemEditor(entry.id, {
+                                itemNo,
+                                itemId: found.id,
+                                rate: found.pricePerDay ?? editor.rate,
+                                quantity: isSafaItem(found) ? Math.max(1, Number(editor.quantity) || 1) : 1,
+                              });
+                            } else {
+                              updateItemEditor(entry.id, { itemNo });
+                            }
+                          }}
+                        />
+                      </div>
+
+                      {/* Rate Input */}
+                      <div className="grid gap-1.5 sm:col-span-3 min-w-0">
+                        <Label className="text-xs font-medium">Rate (INR)</Label>
+                        <Input
+                          className="h-10"
                           type="number"
                           min={0}
                           value={editor.rate ?? 0}
                           onChange={(e) => updateItemEditor(entry.id, { rate: Number(e.target.value) })}
                         />
                       </div>
-                      {entryIsSafa ? (
-                        <div className="grid gap-2">
-                          <Label>Quantity</Label>
+                    </div>
+
+                    {/* Safa Quantity and Lost Quantity */}
+                    {entryIsSafa && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
+                        <div className="grid gap-1.5">
+                          <Label className="text-xs font-medium">Quantity</Label>
                           <Input
                             type="number"
                             min={1}
@@ -1243,63 +1478,107 @@ Thank you for choosing ARIHANT COLLECTION !`;
                             onChange={(e) => updateItemEditor(entry.id, { quantity: Math.max(1, Number(e.target.value) || 1) })}
                           />
                         </div>
-                      ) : null}
+                        <div className="grid gap-1.5">
+                          <Label className="text-xs font-medium">Lost Safa</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={entryQty}
+                            value={editor.lostQuantity ?? 0}
+                            onChange={(e) => updateItemEditor(entry.id, { lostQuantity: Math.max(0, Math.min(entryQty, Number(e.target.value) || 0)) })}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Delivery and Return Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-2">
+                      {/* Delivery Card */}
+                      <div className="grid gap-2 p-3 border border-border/70 rounded-md bg-secondary/20">
+                        <Label className="font-semibold text-gold text-xs">Delivery</Label>
+                        <div className="grid gap-1">
+                          <Label className="text-[11px] text-muted-foreground">Date</Label>
+                          <DateInput
+                            value={editor.deliveryDate ?? today()}
+                            onChange={(val) => updateItemEditor(entry.id, { deliveryDate: val, startDate: val })}
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="grid gap-1">
+                            <Label className="text-[11px] text-muted-foreground">Time</Label>
+                            <Input
+                              type="time"
+                              value={editor.deliveryTime || "10:00"}
+                              onChange={(e) => updateItemEditor(entry.id, { deliveryTime: e.target.value, deliveryTimePeriod: getTimePeriod(e.target.value) })}
+                            />
+                          </div>
+                          <div className="grid gap-1">
+                            <Label className="text-[11px] text-muted-foreground">Period</Label>
+                            <Select
+                              value={editor.deliveryTimePeriod || "Morning"}
+                              onValueChange={(val) => updateItemEditor(entry.id, { deliveryTimePeriod: val })}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Period" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Morning">Morning</SelectItem>
+                                <SelectItem value="Afternoon">Afternoon</SelectItem>
+                                <SelectItem value="Evening">Evening</SelectItem>
+                                <SelectItem value="Night">Night</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Return Card */}
+                      <div className="grid gap-2 p-3 border border-border/70 rounded-md bg-secondary/20">
+                        <Label className="font-semibold text-gold text-xs">Return</Label>
+                        <div className="grid gap-1">
+                          <Label className="text-[11px] text-muted-foreground">Date</Label>
+                          <DateInput
+                            value={editor.endDate ?? today()}
+                            onChange={(val) => updateItemEditor(entry.id, { endDate: val })}
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="grid gap-1">
+                            <Label className="text-[11px] text-muted-foreground">Time</Label>
+                            <Input
+                              type="time"
+                              value={editor.endTime || "10:00"}
+                              onChange={(e) => updateItemEditor(entry.id, { endTime: e.target.value, endTimePeriod: getTimePeriod(e.target.value) })}
+                            />
+                          </div>
+                          <div className="grid gap-1">
+                            <Label className="text-[11px] text-muted-foreground">Period</Label>
+                            <Select
+                              value={editor.endTimePeriod || "Morning"}
+                              onValueChange={(val) => updateItemEditor(entry.id, { endTimePeriod: val })}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Period" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Morning">Morning</SelectItem>
+                                <SelectItem value="Afternoon">Afternoon</SelectItem>
+                                <SelectItem value="Evening">Evening</SelectItem>
+                                <SelectItem value="Night">Night</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="grid gap-2">
-                        <Label>Delivery Date</Label>
-                        <DateInput
-                          value={editor.deliveryDate ?? today()}
-                          onChange={(val) => updateItemEditor(entry.id, { deliveryDate: val })}
-                        />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label>Return Date</Label>
-                        <DateInput
-                          value={editor.endDate ?? today()}
-                          onChange={(val) => updateItemEditor(entry.id, { endDate: val })}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="grid gap-2">
-                        <Label>Delivery Time</Label>
-                        <Input
-                          type="time"
-                          value={editor.deliveryTime || "10:00"}
-                          onChange={(e) => updateItemEditor(entry.id, { deliveryTime: e.target.value, deliveryTimePeriod: getTimePeriod(e.target.value) })}
-                        />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label>Return Time</Label>
-                        <Input
-                          type="time"
-                          value={editor.endTime || "10:00"}
-                          onChange={(e) => updateItemEditor(entry.id, { endTime: e.target.value, endTimePeriod: getTimePeriod(e.target.value) })}
-                        />
-                      </div>
-                    </div>
-
-                    {entryIsSafa ? (
-                      <div className="grid gap-2">
-                        <Label>Lost Safa</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={entryQty}
-                          value={editor.lostQuantity ?? 0}
-                          onChange={(e) => updateItemEditor(entry.id, { lostQuantity: Math.max(0, Math.min(entryQty, Number(e.target.value) || 0)) })}
-                        />
-                      </div>
-                    ) : null}
-
-                    <div className="grid gap-2">
-                      <Label>Remark</Label>
+                    {/* Remark */}
+                    <div className="grid gap-1.5">
+                      <Label className="text-xs font-medium">Remark</Label>
                       <Textarea
                         rows={2}
                         value={editor.remark ?? ""}
+                        placeholder="Any special notes for this piece"
                         onChange={(e) => updateItemEditor(entry.id, { remark: e.target.value })}
                       />
                     </div>
@@ -1588,7 +1867,7 @@ Thank you for choosing ARIHANT COLLECTION !`;
                 </div>
 
                 {/* ── Quick Payment Collection ── */}
-                {aggFinalDue > 0 && (
+                {form.status !== 'cancelled' && aggFinalDue > 0 && (
                   <div className="mt-3 border border-emerald-500/30 rounded-lg bg-emerald-500/5 p-3 space-y-2">
                     <div className="flex items-center gap-1.5">
                       <IndianRupee className="w-3.5 h-3.5 text-emerald-600" />
@@ -1629,9 +1908,14 @@ Thank you for choosing ARIHANT COLLECTION !`;
                     </div>
                   </div>
                 )}
-                {aggFinalDue <= 0 && (form.payments || []).length > 0 && (
+                {form.status !== 'cancelled' && aggFinalDue <= 0 && (form.payments || []).length > 0 && (
                   <div className="mt-3 flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-xs font-semibold">
                     <IndianRupee className="w-3.5 h-3.5" /> Bill puri tarah clear ho chuka hai! ✓
+                  </div>
+                )}
+                {form.status === 'cancelled' && (
+                  <div className="mt-3 flex items-center gap-1.5 text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 text-xs font-semibold">
+                    <Ban className="w-3.5 h-3.5" /> Yeh order cancel ho chuka hai. Refund & Charges calculate ho chuke hain.
                   </div>
                 )}
               </div>
@@ -1648,31 +1932,66 @@ Thank you for choosing ARIHANT COLLECTION !`;
             </div>
           </div>
 
-          <div className="rounded-md border border-border bg-secondary/40 px-4 py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
-                Computed total (Bill)
-              </p>
-              <div className="flex items-center gap-3 mt-0.5">
-                <p className="font-display text-2xl text-gold">
-                  {formatCurrencyINR(aggTotal)}
+          {form.status === "cancelled" ? (
+            <div className="rounded-md border border-rose-500/30 bg-rose-500/10 px-4 py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.25em] text-rose-600 font-semibold">
+                  Cancelled Order Ledger
                 </p>
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-500/10 text-red-500 border border-red-500/20">
-                  Balance: {formatCurrencyINR(aggFinalDue)}
-                </span>
+                <div className="flex items-center gap-3 mt-1">
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-600 text-white">
+                    Order Cancelled
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                    Refund: {formatCurrencyINR((mainBillRental as any).refundAmount ?? Math.max(0, aggPaid - ((mainBillRental as any).cancellationCharge || 0)))}
+                  </span>
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-1.5 space-y-0.5">
+                  <p>Advance Received: {formatCurrencyINR(aggPaid)}</p>
+                  <p>Cancellation Charge: -{formatCurrencyINR((mainBillRental as any).cancellationCharge || 0)}</p>
+                  <p>Refund Status: {(mainBillRental as any).refundPaid ? "✅ Paid to Customer" : "⏳ Pending Refund"}</p>
+                </div>
               </div>
-              <div className="text-[11px] text-muted-foreground mt-1 space-y-0.5">
-                <p>{relatedRentals.length} piece(s)</p>
-                <p>Security refund: {formatCurrencyINR(aggSecurityRefundDue)}</p>
-                {form.securityReturned ? <p className="text-emerald-600">Security clear</p> : null}
+              <div className="text-right text-xs">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCancelDialogOpen(true)}
+                  className="h-8 text-xs border-rose-500/40 text-rose-500 hover:bg-rose-500/10"
+                >
+                  <Ban className="h-3.5 w-3.5 mr-1" />
+                  Edit Cancellation Fee
+                </Button>
               </div>
             </div>
-            <div className="text-right text-xs text-muted-foreground">
-              Total Rent: {formatCurrencyINR(aggSubtotal)}
-              <br />
-              Total Bill: {formatCurrencyINR(aggTotal)}
+          ) : (
+            <div className="rounded-md border border-border bg-secondary/40 px-4 py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
+                  Computed total (Bill)
+                </p>
+                <div className="flex items-center gap-3 mt-0.5">
+                  <p className="font-display text-2xl text-gold">
+                    {formatCurrencyINR(aggTotal)}
+                  </p>
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-500/10 text-red-500 border border-red-500/20">
+                    Balance: {formatCurrencyINR(aggFinalDue)}
+                  </span>
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-1 space-y-0.5">
+                  <p>{relatedRentals.length} piece(s)</p>
+                  <p>Security refund: {formatCurrencyINR(aggSecurityRefundDue)}</p>
+                  {form.securityReturned ? <p className="text-emerald-600">Security clear</p> : null}
+                </div>
+              </div>
+              <div className="text-right text-xs text-muted-foreground">
+                Total Rent: {formatCurrencyINR(aggSubtotal)}
+                <br />
+                Total Bill: {formatCurrencyINR(aggTotal)}
+              </div>
             </div>
-          </div>
+          )}
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
@@ -1689,5 +2008,167 @@ Thank you for choosing ARIHANT COLLECTION !`;
         </form>
       </DialogContent>
     </Dialog>
+
+    {/* Dialog to create a new inventory piece */}
+    <AddPieceDialog
+      open={addInventoryOpen}
+      onOpenChange={setAddInventoryOpen}
+    />
+
+    {/* Dialog to add another piece to the current bill */}
+    <Dialog open={addBillPieceOpen} onOpenChange={setAddBillPieceOpen}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add Piece to Bill ({form.billNo || "Draft"})</DialogTitle>
+          <DialogDescription>
+            Select a piece from inventory to add to this rental bill.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="grid gap-2">
+            <Label>Select Piece</Label>
+            <Select
+              value={newPieceItemId}
+              onValueChange={(val) => {
+                setNewPieceItemId(val);
+                const itm = items.find((i) => i.id === val || i.customId === val);
+                if (itm) {
+                  setNewPieceItemNo(itm.customId || itm.id);
+                  setNewPieceRate(itm.pricePerDay || 0);
+                }
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Choose a piece..." />
+              </SelectTrigger>
+              <SelectContent>
+                {items.map((i) => (
+                  <SelectItem key={i.id} value={i.id}>
+                    ({i.customId || i.id}) {i.name} - {formatCurrencyINR(i.pricePerDay)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label>Item No</Label>
+              <Input
+                value={newPieceItemNo}
+                placeholder="Item No"
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setNewPieceItemNo(val);
+                  const itm = items.find((i) => i.customId === val || i.id === val);
+                  if (itm) {
+                    setNewPieceItemId(itm.id);
+                    setNewPieceRate(itm.pricePerDay || 0);
+                  }
+                }}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Rate (INR)</Label>
+              <Input
+                type="number"
+                min={0}
+                value={newPieceRate}
+                onChange={(e) => setNewPieceRate(Number(e.target.value))}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label>Delivery Date</Label>
+              <DateInput
+                value={newPieceDeliveryDate}
+                onChange={setNewPieceDeliveryDate}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Return Date</Label>
+              <DateInput
+                value={newPieceEndDate}
+                onChange={setNewPieceEndDate}
+              />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" type="button" onClick={() => setAddBillPieceOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            className="bg-gold text-gold-foreground hover:bg-gold/90"
+            disabled={newPieceLoading || !newPieceItemId}
+            onClick={async () => {
+              if (!newPieceItemId) {
+                toast.error("Please select a piece to add");
+                return;
+              }
+              const itm = items.find((i) => i.id === newPieceItemId || i.customId === newPieceItemId);
+              setNewPieceLoading(true);
+              try {
+                const payload: any = {
+                  customerId: rental.customerId,
+                  billNo: form.billNo,
+                  address: form.address,
+                  pieces: [{
+                    itemId: itm?.id || newPieceItemId,
+                    itemNo: itm?.customId || newPieceItemNo,
+                    deliveryDate: newPieceDeliveryDate,
+                    endDate: newPieceEndDate,
+                    deliveryTime: "10:00",
+                    deliveryTimePeriod: "Morning",
+                    endTime: "10:00",
+                    endTimePeriod: "Morning",
+                    rate: newPieceRate,
+                    quantity: 1,
+                    remark: "",
+                    status: form.status,
+                  }],
+                  advance: 0,
+                  payments: [],
+                  discount: 0,
+                  securityAmount: 0,
+                  status: form.status,
+                };
+                await addRental(payload);
+                toast.success("Piece added to bill");
+                setAddBillPieceOpen(false);
+                setNewPieceItemId("");
+                setNewPieceItemNo("");
+                setNewPieceRate(0);
+              } catch (err: any) {
+                toast.error(err.message || "Failed to add piece");
+              } finally {
+                setNewPieceLoading(false);
+              }
+            }}
+          >
+            {newPieceLoading ? "Adding..." : "Add Piece"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Dialog to cancel the rental order or a specific piece */}
+    <CancelOrderDialog
+      rental={mainBillRental}
+      targetPieceId={selectedCancelPiece?.id}
+      open={cancelDialogOpen}
+      onOpenChange={(isOpen) => {
+        setCancelDialogOpen(isOpen);
+        if (!isOpen) setSelectedCancelPiece(null);
+      }}
+      onCancelled={() => {
+        setCancelDialogOpen(false);
+        setSelectedCancelPiece(null);
+        setOpen(false);
+        onUpdated?.({ ...mainBillRental });
+      }}
+    />
+    </>
   );
 }

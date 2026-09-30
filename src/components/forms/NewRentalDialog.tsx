@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, useEffect, type ReactNode } from "react";
 import { z } from "zod";
 import { toast } from "sonner";
 import {
@@ -153,52 +153,88 @@ export function NewRentalDialog({
   const [loading, setLoading] = useState(false);
   const [billNoLoading, setBillNoLoading] = useState(false);
 
-  function isItemAlreadyBooked(item: any, deliveryDate?: string, returnDate?: string) {
-    if (!item) return false;
-
-    // Direct status check: if piece is currently rented, reserved, or in cleaning
-    if (item.status === "rented" || item.status === "cleaning" || item.status === "reserved") {
-      return true;
+  useEffect(() => {
+    if (isOpen) {
+      console.log("[NewRentalDialog] Dialog opened. Initial form state:", form);
     }
+  }, [isOpen]);
+
+  function getOverlappingBooking(item: any, deliveryDate?: string, returnDate?: string) {
+    if (!item) return null;
+
+    const checkStartStr = deliveryDate || today();
+    const checkEndStr = returnDate || checkStartStr;
+
+    const newStart = new Date(checkStartStr);
+    newStart.setHours(0, 0, 0, 0);
+    const newEnd = new Date(checkEndStr);
+    newEnd.setHours(23, 59, 59, 999);
 
     const isSafa = isSafaItem(item);
-    if (isSafa) {
-      const stockQty = Number((item as any)?.quantity) || 1;
-      const safaBooked = rentals
-        .filter((r) => {
-          const match = r.itemId === item.id || r.itemId === item.customId || (r as any).item?._id === item._id || (r as any).item?.customId === item.id;
-          return match && (r.status === "active" || r.status === "upcoming" || r.status === "overdue");
-        })
-        .reduce((sum, r) => sum + (Number((r as any).quantity) || 1), 0);
-      return safaBooked >= stockQty;
-    }
+    const stockQty = Number((item as any)?.quantity) || 1;
 
-    // For non-safa items: check if any active/upcoming/overdue rental exists
-    const hasBooking = rentals.some((r) => {
-      const match =
+    // Find all rentals matching this item
+    const matchingRentals = rentals.filter((r) => {
+      return (
         r.itemId === item.id ||
         r.itemId === item.customId ||
         (r as any).itemId === item._id ||
         (r as any).item?._id === item._id ||
         (r as any).item?.customId === item.id ||
-        (r as any).item?.customId === item.customId;
-      if (!match) return false;
-      if (r.status !== "active" && r.status !== "upcoming" && r.status !== "overdue") return false;
-
-      if (r.status === "overdue") return true;
-
-      const checkStart = deliveryDate || today();
-      const checkEnd = returnDate || checkStart;
-      const rStart = (r.startDate || "").slice(0, 10);
-      const rEnd = (r.endDate || "").slice(0, 10);
-
-      if (checkStart && checkEnd && rStart && rEnd) {
-        return checkStart <= rEnd && checkEnd >= rStart;
-      }
-      return true;
+        (r as any).item?.customId === item.customId
+      );
     });
 
-    return hasBooking;
+    if (isSafa) {
+      const overlappingRentals = matchingRentals.filter((r) => {
+        if (r.status !== "active" && r.status !== "upcoming" && r.status !== "overdue") return false;
+        if (r.status === "overdue") return true;
+
+        const rStartStr = r.deliveryDate || r.startDate;
+        const rEndStr = r.endDate || rStartStr;
+        if (!rStartStr || !rEndStr) return false;
+
+        const rStart = new Date(rStartStr);
+        rStart.setHours(0, 0, 0, 0);
+        const rEnd = new Date(rEndStr);
+        rEnd.setHours(23, 59, 59, 999);
+
+        return newStart <= rEnd && newEnd >= rStart;
+      });
+
+      const safaBookedQty = overlappingRentals.reduce(
+        (sum, r) => sum + (Number((r as any).quantity) || 1),
+        0
+      );
+      if (safaBookedQty >= stockQty) {
+        return overlappingRentals[0] || true;
+      }
+      return null;
+    }
+
+    // For non-safa items:
+    const conflict = matchingRentals.find((r) => {
+      if (r.status !== "active" && r.status !== "upcoming" && r.status !== "overdue") return false;
+      // Overdue means the item has not been physically returned yet
+      if (r.status === "overdue") return true;
+
+      const rStartStr = r.deliveryDate || r.startDate;
+      const rEndStr = r.endDate || rStartStr;
+      if (!rStartStr || !rEndStr) return false;
+
+      const rStart = new Date(rStartStr);
+      rStart.setHours(0, 0, 0, 0);
+      const rEnd = new Date(rEndStr);
+      rEnd.setHours(23, 59, 59, 999);
+
+      return newStart <= rEnd && newEnd >= rStart;
+    });
+
+    return conflict || null;
+  }
+
+  function isItemAlreadyBooked(item: any, deliveryDate?: string, returnDate?: string) {
+    return Boolean(getOverlappingBooking(item, deliveryDate, returnDate));
   }
 
 
@@ -337,15 +373,19 @@ export function NewRentalDialog({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    console.log("[NewRentalDialog] handleSubmit called. Current form state:", form);
     // Bill number is now generated on the backend if left empty.
     const parsed = schema.safeParse(form);
 
     if (!parsed.success) {
+      console.warn("[NewRentalDialog] Validation failed:", parsed.error.issues);
       toast.error(parsed.error.issues[0]?.message ?? "Invalid input");
       return;
     }
+    console.log("[NewRentalDialog] Schema validation passed:", parsed.data);
 
     if (parsed.data.pieces.some((p) => new Date(p.endDate) < new Date(p.deliveryDate))) {
+      console.warn("[NewRentalDialog] End date is before delivery date in pieces:", parsed.data.pieces);
       toast.error("End date must be after delivery date for all pieces");
       return;
     }
@@ -353,6 +393,7 @@ export function NewRentalDialog({
     const itemIds = new Set();
     for (const piece of parsed.data.pieces) {
       if (itemIds.has(piece.itemId)) {
+        console.warn("[NewRentalDialog] Duplicate item found:", piece.itemId);
         toast.error(`Duplicate item found: ${items.find(i => i.id === piece.itemId)?.name}. Each piece must be unique.`);
         return;
       }
@@ -367,18 +408,37 @@ export function NewRentalDialog({
     });
 
     if (piecesData.some((p) => !p.item)) {
+      console.warn("[NewRentalDialog] Invalid piece entry (item not found in store)");
       toast.error("Select a valid piece for all entries");
       return;
     }
 
+    console.log("[NewRentalDialog] Financial calculation:", {
+      piecesTotal,
+      discount: parsed.data.discount,
+      securityAmount: parsed.data.securityAmount,
+      netTotal,
+      totalPaid,
+      balanceDue,
+    });
+
     const confirmedPayment = window.confirm(
       `Confirm amount submitted by customer:\n\nTotal Rent: ${formatCurrencyINR(piecesTotal)}\nDiscount: ${formatCurrencyINR(parsed.data.discount)}\nSecurity deposit: ${formatCurrencyINR(parsed.data.securityAmount)}\nTotal bill: ${formatCurrencyINR(netTotal)}\nAmount paid: ${formatCurrencyINR(totalPaid)}\nBalance: ${formatCurrencyINR(balanceDue)}`,
     );
-    if (!confirmedPayment) return;
+    if (!confirmedPayment) {
+      console.log("[NewRentalDialog] Submission cancelled by user in confirmation prompt.");
+      return;
+    }
+
     for (const p of parsed.data.pieces) {
       const item = items.find((i) => i.id === p.itemId || i.customId === p.itemNo);
-      if (item && isItemAlreadyBooked(item, p.deliveryDate, p.endDate)) {
-        toast.error(`"${item.name || p.itemNo}" is already booked.`);
+      const conflict = item ? getOverlappingBooking(item, p.deliveryDate, p.endDate) : null;
+      if (conflict) {
+        console.warn("[NewRentalDialog] Piece already booked:", { item, conflict, deliveryDate: p.deliveryDate, returnDate: p.endDate });
+        const conflictMsg = (conflict as any)?.startDate
+          ? `"${item?.name || p.itemNo}" is already booked from ${formatDate((conflict as any).startDate)} to ${formatDate((conflict as any).endDate)}.`
+          : `"${item?.name || p.itemNo}" is already booked.`;
+        toast.error(conflictMsg);
         return;
       }
     }
@@ -420,7 +480,9 @@ export function NewRentalDialog({
         }),
       };
 
+      console.log("[NewRentalDialog] Submitting payload to addRental:", payload);
       await addRental(payload);
+      console.log("[NewRentalDialog] Rental created successfully!");
 
       toast.success(`Rental bill created for ${piecesData.length} piece(s)`);
 
@@ -453,8 +515,8 @@ export function NewRentalDialog({
       });
       setOpen(false);
     } catch (error) {
+      console.error("[NewRentalDialog] Failed to create rental:", error);
       toast.error("Failed to create rental");
-      console.error(error);
     } finally {
       setLoading(false);
     }
@@ -493,6 +555,7 @@ export function NewRentalDialog({
                   <Select
                     value={form.status}
                     onValueChange={(v: RentalStatus) => {
+                      console.log("[NewRentalDialog] Status changed:", v);
                       if (v === "returned") {
                         const confirmed = window.confirm("Are all dues clear? Please confirm that all balances are settled before marking as returned.");
                         if (!confirmed) return;
@@ -538,7 +601,11 @@ export function NewRentalDialog({
                   </div>
                   <Select
                     value={form.customerId}
-                    onValueChange={(v) => setForm({ ...form, customerId: v })}
+                    onValueChange={(v) => {
+                      const client = customers.find((c) => c.id === v);
+                      console.log("[NewRentalDialog] Client selected:", { id: v, name: client?.name, tier: client?.tier });
+                      setForm({ ...form, customerId: v });
+                    }}
                   >
                     <SelectTrigger id="client" className="[&>span]:truncate">
                       <SelectValue placeholder="Choose a client..." />
@@ -578,6 +645,7 @@ export function NewRentalDialog({
                       size="icon"
                       className="absolute top-2 right-2 h-6 w-6 text-muted-foreground hover:text-destructive"
                       onClick={() => {
+                        console.log("[NewRentalDialog] Removing piece row:", { pieceId: piece.id, index });
                         setForm(f => ({ ...f, pieces: f.pieces.filter(p => p.id !== piece.id) }));
                       }}
                     >
@@ -606,10 +674,15 @@ export function NewRentalDialog({
                             return;
                           }
                           const item = items.find((i) => i.id === v);
-                          if (item && isItemAlreadyBooked(item, piece.deliveryDate, piece.endDate)) {
-                            toast.error(`"${item.name}" is already booked and cannot be selected.`);
+                          const conflict = item ? getOverlappingBooking(item, piece.deliveryDate, piece.endDate) : null;
+                          if (conflict) {
+                            const conflictMsg = (conflict as any)?.startDate
+                              ? `"${item?.name}" is already booked from ${formatDate((conflict as any).startDate)} to ${formatDate((conflict as any).endDate)}.`
+                              : `"${item?.name}" is already booked and cannot be selected.`;
+                            toast.error(conflictMsg);
                             return;
                           }
+                          console.log(`[NewRentalDialog] Piece ${index + 1} selected:`, { itemId: v, name: item?.name, rate: item?.pricePerDay });
                           setForm(f => {
                             const newPieces = [...f.pieces];
                             newPieces[index] = { ...newPieces[index], itemId: v, itemNo: item?.id ?? "", rate: item?.pricePerDay ?? 0, quantity: isSafaItem(item) ? Math.max(1, newPieces[index].quantity || 1) : 1 };
@@ -653,8 +726,12 @@ export function NewRentalDialog({
                             // Try to auto-fill if item exists
                             const found = items.find(i => i.customId === itemNo);
                             if (found) {
-                              if (isItemAlreadyBooked(found, piece.deliveryDate, piece.endDate)) {
-                                toast.error(`Item "${found.name}" (${itemNo}) is already booked.`);
+                              const conflict = getOverlappingBooking(found, piece.deliveryDate, piece.endDate);
+                              if (conflict) {
+                                const conflictMsg = (conflict as any)?.startDate
+                                  ? `Item "${found.name}" (${itemNo}) is already booked from ${formatDate((conflict as any).startDate)} to ${formatDate((conflict as any).endDate)}.`
+                                  : `Item "${found.name}" (${itemNo}) is already booked.`;
+                                toast.error(conflictMsg);
                                 return { ...f, pieces: newPieces };
                               }
                               newPieces[index] = {
@@ -870,6 +947,7 @@ const newPieces = [...f.pieces];
                 variant="outline"
                 className="w-full border-dashed"
                 onClick={() => {
+                  console.log("[NewRentalDialog] Added another piece row. Total pieces count will be:", form.pieces.length + 1);
                   setForm(f => ({
                     ...f,
                     pieces: [
