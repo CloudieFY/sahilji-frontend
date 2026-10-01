@@ -114,8 +114,13 @@ function transformRental(rental: any): Rental {
     rate: Number(rental.rate) || Number(rental.total) + Number(rental.discount || 0) || 0,
     quantity: Number(rental.quantity) || 1,
     lostQuantity: Number(rental.lostQuantity) || 0,
-    startDate: formatDateTime(rental.startDate),
+    deliveryDate: formatDateTime(rental.deliveryDate),
+    deliveryTime: rental.deliveryTime || "10:00",
+    deliveryTimePeriod: rental.deliveryTimePeriod || "",
+    startDate: formatDateTime(rental.startDate || rental.deliveryDate),
     endDate: formatDateTime(rental.endDate),
+    endTime: rental.endTime || "10:00",
+    endTimePeriod: rental.endTimePeriod || "",
   };
 }
 

@@ -1087,6 +1087,16 @@ Thank you for choosing ARIHANT COLLECTION !`;
       return;
     }
 
+    for (const entry of relatedRentals) {
+      const entryEditor = itemEditors[entry.id] || createItemEditorState(entry);
+      const currentItemId = entryEditor.itemId || entry.itemId;
+      const itm = items.find((i) => i.id === currentItemId || i.customId === currentItemId || (entryEditor.itemNo && (i.customId?.toLowerCase() === entryEditor.itemNo.trim().toLowerCase() || i.id?.toLowerCase() === entryEditor.itemNo.trim().toLowerCase())));
+      if (!itm) {
+        toast.error(`Item "${entryEditor.itemNo || currentItemId}" is not in inventory`);
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const updatedPayments = (form.payments ?? []) as Array<{ amount: number; date: string; }>;
@@ -1431,14 +1441,34 @@ Thank you for choosing ARIHANT COLLECTION !`;
 
                       {/* Item No Input */}
                       <div className="grid gap-1.5 sm:col-span-4 min-w-0">
-                        <Label className="text-xs font-medium">Item No</Label>
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs font-medium">Item No</Label>
+                          {(() => {
+                            const trimmed = (editor.itemNo ?? "").trim();
+                            if (!trimmed) return null;
+                            const matched = items.find(i => String(i.customId || '').toLowerCase() === trimmed.toLowerCase() || String(i.id || '').toLowerCase() === trimmed.toLowerCase());
+                            if (matched) {
+                              return (
+                                <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                  ✓ {matched.name}
+                                </span>
+                              );
+                            }
+                            return (
+                              <span className="text-xs font-semibold text-red-600 dark:text-red-400 flex items-center gap-1">
+                                ✕ Not in inventory
+                              </span>
+                            );
+                          })()}
+                        </div>
                         <Input
                           className="h-10"
                           value={editor.itemNo ?? ""}
                           placeholder="Item No (e.g. 2990)"
                           onChange={(e) => {
                             const itemNo = e.target.value;
-                            const found = items.find((i) => i.customId === itemNo || i.id === itemNo);
+                            const trimmed = itemNo.trim();
+                            const found = trimmed ? items.find((i) => String(i.customId || '').toLowerCase() === trimmed.toLowerCase() || String(i.id || '').toLowerCase() === trimmed.toLowerCase()) : undefined;
                             if (found) {
                               updateItemEditor(entry.id, {
                                 itemNo,
@@ -1447,7 +1477,7 @@ Thank you for choosing ARIHANT COLLECTION !`;
                                 quantity: isSafaItem(found) ? Math.max(1, Number(editor.quantity) || 1) : 1,
                               });
                             } else {
-                              updateItemEditor(entry.id, { itemNo });
+                              updateItemEditor(entry.id, { itemNo, itemId: "", rate: 0 });
                             }
                           }}
                         />
@@ -2052,17 +2082,40 @@ Thank you for choosing ARIHANT COLLECTION !`;
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-2">
-              <Label>Item No</Label>
+              <div className="flex items-center justify-between">
+                <Label>Item No</Label>
+                {(() => {
+                  const trimmed = newPieceItemNo.trim();
+                  if (!trimmed) return null;
+                  const matched = items.find(i => String(i.customId || '').toLowerCase() === trimmed.toLowerCase() || String(i.id || '').toLowerCase() === trimmed.toLowerCase());
+                  if (matched) {
+                    return (
+                      <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                        ✓ {matched.name}
+                      </span>
+                    );
+                  }
+                  return (
+                    <span className="text-xs font-semibold text-red-600 dark:text-red-400 flex items-center gap-1">
+                      ✕ Not in inventory
+                    </span>
+                  );
+                })()}
+              </div>
               <Input
                 value={newPieceItemNo}
                 placeholder="Item No"
                 onChange={(e) => {
                   const val = e.target.value;
                   setNewPieceItemNo(val);
-                  const itm = items.find((i) => i.customId === val || i.id === val);
+                  const trimmed = val.trim();
+                  const itm = trimmed ? items.find((i) => String(i.customId || '').toLowerCase() === trimmed.toLowerCase() || String(i.id || '').toLowerCase() === trimmed.toLowerCase()) : undefined;
                   if (itm) {
                     setNewPieceItemId(itm.id);
                     setNewPieceRate(itm.pricePerDay || 0);
+                  } else {
+                    setNewPieceItemId("");
+                    setNewPieceRate(0);
                   }
                 }}
               />

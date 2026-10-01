@@ -401,7 +401,7 @@ export function NewRentalDialog({
     }
 
     const piecesData = parsed.data.pieces.map((p) => {
-      const item = items.find((i) => i.id === p.itemId);
+      const item = items.find((i) => i.id === p.itemId || i.customId === p.itemId);
       const quantity = isSafaItem(item) ? p.quantity : 1;
       const lineTotal = p.rate * quantity;
       return { ...p, item, lineTotal };
@@ -409,7 +409,7 @@ export function NewRentalDialog({
 
     if (piecesData.some((p) => !p.item)) {
       console.warn("[NewRentalDialog] Invalid piece entry (item not found in store)");
-      toast.error("Select a valid piece for all entries");
+      toast.error("One or more items are not in inventory. Please select valid items.");
       return;
     }
 
@@ -685,7 +685,7 @@ export function NewRentalDialog({
                           console.log(`[NewRentalDialog] Piece ${index + 1} selected:`, { itemId: v, name: item?.name, rate: item?.pricePerDay });
                           setForm(f => {
                             const newPieces = [...f.pieces];
-                            newPieces[index] = { ...newPieces[index], itemId: v, itemNo: item?.id ?? "", rate: item?.pricePerDay ?? 0, quantity: isSafaItem(item) ? Math.max(1, newPieces[index].quantity || 1) : 1 };
+                            newPieces[index] = { ...newPieces[index], itemId: v, itemNo: item?.customId || item?.id || "", rate: item?.pricePerDay ?? 0, quantity: isSafaItem(item) ? Math.max(1, newPieces[index].quantity || 1) : 1 };
                             return { ...f, pieces: newPieces };
                           });
                         }}
@@ -700,7 +700,7 @@ export function NewRentalDialog({
                               <SelectItem key={i.id} value={i.id} disabled={booked}>
                                 <div className="flex items-center justify-between w-full gap-2">
                                   <span className={booked ? "line-through opacity-60" : ""}>
-                                    {i.name} - {formatCurrencyINR(i.pricePerDay)}
+                                    {i.customId ? `(${i.customId}) ` : ""}{i.name} - {formatCurrencyINR(i.pricePerDay)}
                                   </span>
                                   {booked && (
                                     <span className="text-[10px] bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400 px-1.5 py-0.5 rounded font-semibold ml-2 shrink-0">
@@ -715,30 +715,66 @@ export function NewRentalDialog({
                       </Select>
                     </div>
                     <div className="grid gap-2 min-w-0 sm:col-span-4">
-                      <Label>Item No</Label>
+                      <div className="flex items-center justify-between">
+                        <Label>Item No</Label>
+                        {(() => {
+                          const trimmed = (piece.itemNo || "").trim();
+                          if (!trimmed) return null;
+                          const matched = items.find(i => String(i.customId || '').toLowerCase() === trimmed.toLowerCase() || String(i.id || '').toLowerCase() === trimmed.toLowerCase());
+                          if (matched) {
+                            return (
+                              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                ✓ {matched.name}
+                              </span>
+                            );
+                          }
+                          return (
+                            <span className="text-xs font-semibold text-red-600 dark:text-red-400 flex items-center gap-1">
+                              ✕ Not in inventory
+                            </span>
+                          );
+                        })()}
+                      </div>
                       <Input
                         value={piece.itemNo}
                         onChange={e => {
                           const itemNo = e.target.value;
                           setForm(f => {
                             const newPieces = [...f.pieces];
-                            newPieces[index] = { ...newPieces[index], itemNo };
+                            const trimmed = itemNo.trim();
                             // Try to auto-fill if item exists
-                            const found = items.find(i => i.customId === itemNo);
+                            const found = trimmed ? items.find(i => String(i.customId || '').trim().toLowerCase() === trimmed.toLowerCase() || String(i.id || '').trim().toLowerCase() === trimmed.toLowerCase()) : undefined;
                             if (found) {
+                              if (form.pieces.some(p => p.itemId === found.id && p.id !== piece.id)) {
+                                toast.error("This item is already added to the bill.");
+                                newPieces[index] = {
+                                  ...newPieces[index],
+                                  itemNo,
+                                  itemId: "",
+                                  rate: 0,
+                                };
+                                return { ...f, pieces: newPieces };
+                              }
                               const conflict = getOverlappingBooking(found, piece.deliveryDate, piece.endDate);
                               if (conflict) {
                                 const conflictMsg = (conflict as any)?.startDate
-                                  ? `Item "${found.name}" (${itemNo}) is already booked from ${formatDate((conflict as any).startDate)} to ${formatDate((conflict as any).endDate)}.`
-                                  : `Item "${found.name}" (${itemNo}) is already booked.`;
+                                  ? `Item "${found.name}" (${found.customId || itemNo}) is already booked from ${formatDate((conflict as any).startDate)} to ${formatDate((conflict as any).endDate)}.`
+                                  : `Item "${found.name}" (${found.customId || itemNo}) is already booked.`;
                                 toast.error(conflictMsg);
-                                return { ...f, pieces: newPieces };
                               }
                               newPieces[index] = {
                                 ...newPieces[index],
+                                itemNo,
                                 itemId: found.id,
                                 rate: found.pricePerDay ?? 0,
                                 quantity: isSafaItem(found) ? Math.max(1, newPieces[index].quantity || 1) : 1,
+                              };
+                            } else {
+                              newPieces[index] = {
+                                ...newPieces[index],
+                                itemNo,
+                                itemId: "",
+                                rate: 0,
                               };
                             }
                             return { ...f, pieces: newPieces };

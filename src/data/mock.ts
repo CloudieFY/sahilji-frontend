@@ -45,8 +45,12 @@ export interface Rental {
   address: string;
   customerId: string;
   deliveryDate: string;
+  deliveryTime?: string;
+  deliveryTimePeriod?: string;
   startDate: string;
   endDate: string;
+  endTime?: string;
+  endTimePeriod?: string;
   rate?: number;
   quantity?: number;
   lostQuantity?: number;

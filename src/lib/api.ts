@@ -58,9 +58,11 @@ export interface Rental {
   address: string;
   customerId: string;
   deliveryDate: string;
+  deliveryTime?: string;
   deliveryTimePeriod?: 'Morning' | 'Afternoon' | 'Evening' | 'Night' | '';
   startDate: string;
   endDate: string;
+  endTime?: string;
   endTimePeriod?: 'Morning' | 'Afternoon' | 'Evening' | 'Night' | '';
   rate: number;
   quantity?: number;
