@@ -79,6 +79,9 @@ export interface Rental {
   penalty?: number;
   total: number;
   billMakingDate?: string;
+  instaId?: string;
+  ownerNumber?: string;
+  confirmationChecked?: boolean;
   createdAt?: string;
   status: RentalStatus;
 }
