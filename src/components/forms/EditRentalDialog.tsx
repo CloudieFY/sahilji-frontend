@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-import { Plus, Calendar, Trash2, IndianRupee, PlusCircle, Loader2, Ban } from "lucide-react";
+import { Plus, Calendar, Trash2, IndianRupee, PlusCircle, Loader2, Ban, Pencil, Check, X } from "lucide-react";
 import { useStore } from "@/data/store";
 import { formatCurrencyINR, getBillRepresentative } from "@/lib/utils";
 import { printInvoiceHtml } from "@/lib/invoiceTemplate";
@@ -239,6 +239,10 @@ export function EditRentalDialog({
   const [quickPayAmount, setQuickPayAmount] = useState("");
   const [collectingPayment, setCollectingPayment] = useState(false);
   const quickPayInputRef = useRef<HTMLInputElement>(null);
+  const [editingPaymentIdx, setEditingPaymentIdx] = useState<number | null>(null);
+  const [editPaymentAmount, setEditPaymentAmount] = useState<string>("");
+  const [editPaymentDate, setEditPaymentDate] = useState<string>("");
+  const [updatingPayment, setUpdatingPayment] = useState(false);
 
   const [addInventoryOpen, setAddInventoryOpen] = useState(false);
   const [addBillPieceOpen, setAddBillPieceOpen] = useState(false);
@@ -338,7 +342,7 @@ export function EditRentalDialog({
     if (form.billNo?.trim()) return;
     setBillNoLoading(true);
 
-    // Find gaps and reuse the lowest available deleted bill number
+    // Find highest bill number and strictly increment
     const existingNos = rentals
       .map((r) => r.billNo)
       .filter(Boolean)
@@ -348,15 +352,8 @@ export function EditRentalDialog({
       })
       .filter((n) => n > 0);
 
-    const sorted = Array.from(new Set(existingNos)).sort((a, b) => a - b);
-    let nextSeq = 1;
-    for (const num of sorted) {
-      if (num === nextSeq) {
-        nextSeq++;
-      } else if (num > nextSeq) {
-        break;
-      }
-    }
+    const maxNo = existingNos.length > 0 ? Math.max(...existingNos) : 0;
+    const nextSeq = maxNo + 1;
 
     const newBillNo = `BILL-${String(nextSeq).padStart(4, "0")}`;
     console.log('[EditRentalDialog] Generated new bill number:', newBillNo);
@@ -1035,6 +1032,85 @@ Thank you for choosing ARIHANT COLLECTION !`;
       toast.error("Payment save nahi ho saki. Dobara try karein.");
     } finally {
       setCollectingPayment(false);
+    }
+  }
+
+  function startEditPayment(idx: number, p: { amount: number; date: string }) {
+    setEditingPaymentIdx(idx);
+    setEditPaymentAmount(String(p.amount || 0));
+    setEditPaymentDate(p.date ? String(p.date).slice(0, 10) : today());
+  }
+
+  function cancelEditPayment() {
+    setEditingPaymentIdx(null);
+    setEditPaymentAmount("");
+    setEditPaymentDate("");
+  }
+
+  async function handleSavePaymentEdit(idx: number) {
+    const newAmt = parseFloat(editPaymentAmount);
+    if (isNaN(newAmt) || newAmt <= 0) {
+      toast.error("Sahi amount darj karein (0 se zyada hona chahiye).");
+      return;
+    }
+    if (!editPaymentDate) {
+      toast.error("Sahi date darj karein.");
+      return;
+    }
+
+    setUpdatingPayment(true);
+    try {
+      const currentPayments = [...(form.payments || [])];
+      if (idx >= 0 && idx < currentPayments.length) {
+        currentPayments[idx] = { amount: newAmt, date: editPaymentDate };
+      }
+
+      const totalAdvance = currentPayments.reduce((s: number, p: { amount: number }) => s + Number(p.amount || 0), 0);
+
+      await updateRental(billRental.id, {
+        payments: currentPayments,
+        advance: totalAdvance,
+      } as any);
+
+      setForm((c) => ({ ...c, payments: currentPayments }));
+      toast.success("Payment update ho gayi!");
+      setEditingPaymentIdx(null);
+    } catch (err) {
+      console.error(err);
+      toast.error("Payment update nahi ho saki.");
+    } finally {
+      setUpdatingPayment(false);
+    }
+  }
+
+  async function handleDeletePayment(idx: number) {
+    const pToDelete = (form.payments || [])[idx];
+    if (!pToDelete) return;
+
+    if (!window.confirm(`Kya aap yeh payment (${formatCurrencyINR(pToDelete.amount)}) delete karna chahte hain?`)) {
+      return;
+    }
+
+    setUpdatingPayment(true);
+    try {
+      const currentPayments = (form.payments || []).filter((_: any, i: number) => i !== idx);
+      const totalAdvance = currentPayments.reduce((s: number, p: { amount: number }) => s + Number(p.amount || 0), 0);
+
+      await updateRental(billRental.id, {
+        payments: currentPayments,
+        advance: totalAdvance,
+      } as any);
+
+      setForm((c) => ({ ...c, payments: currentPayments }));
+      toast.success("Payment delete ho gayi!");
+      if (editingPaymentIdx === idx) {
+        setEditingPaymentIdx(null);
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Payment delete nahi ho saki.");
+    } finally {
+      setUpdatingPayment(false);
     }
   }
 
@@ -1878,10 +1954,124 @@ Thank you for choosing ARIHANT COLLECTION !`;
                     <span className="font-semibold">{formatCurrencyINR(aggTotal)}</span>
                   </div>
                   {(form.payments || []).length > 0 && (
-                    <div className="border-t border-border/50 mt-1 pt-1">
-                      {(form.payments || []).map((p: { date: string, amount: number }, i: number) => (
-                        <div key={i} className="flex justify-between text-xs"><span className="text-muted-foreground">Paid on {formatDate(p.date)}</span><span className="font-semibold text-emerald-600">-{formatCurrencyINR(p.amount)}</span></div>
-                      ))}
+                    <div className="border-t border-border/50 mt-2 pt-2 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                          Payments Received ({(form.payments || []).length})
+                        </span>
+                        {form.status !== 'cancelled' && (
+                          <span className="text-[10px] text-muted-foreground italic">
+                            Edit / Delete enabled
+                          </span>
+                        )}
+                      </div>
+                      {(form.payments || []).map((p: { date: string; amount: number }, i: number) => {
+                        const isEditing = editingPaymentIdx === i;
+                        return (
+                          <div
+                            key={i}
+                            className={`rounded p-1.5 transition-colors ${
+                              isEditing
+                                ? "bg-background border border-emerald-300 shadow-sm"
+                                : "hover:bg-gold/10"
+                            }`}
+                          >
+                            {isEditing ? (
+                              <div className="space-y-2 py-1">
+                                <div className="flex items-center justify-between text-xs font-bold text-foreground">
+                                  <span>Edit Payment #{i + 1}</span>
+                                  <button
+                                    type="button"
+                                    onClick={cancelEditPayment}
+                                    className="text-muted-foreground hover:text-foreground"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="text-[10px] text-muted-foreground font-medium block">Amount (₹)</label>
+                                    <Input
+                                      type="number"
+                                      min="1"
+                                      step="1"
+                                      value={editPaymentAmount}
+                                      onChange={(e) => setEditPaymentAmount(e.target.value)}
+                                      className="h-7 text-xs bg-background"
+                                      disabled={updatingPayment}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[10px] text-muted-foreground font-medium block">Date</label>
+                                    <Input
+                                      type="date"
+                                      value={editPaymentDate}
+                                      onChange={(e) => setEditPaymentDate(e.target.value)}
+                                      className="h-7 text-xs bg-background"
+                                      disabled={updatingPayment}
+                                    />
+                                  </div>
+                                </div>
+                                <div className="flex justify-end gap-1.5 pt-1">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={cancelEditPayment}
+                                    disabled={updatingPayment}
+                                    className="h-6 px-2 text-[11px]"
+                                  >
+                                    Cancel
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={() => handleSavePaymentEdit(i)}
+                                    disabled={updatingPayment || !editPaymentAmount}
+                                    className="h-6 px-2.5 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
+                                  >
+                                    {updatingPayment ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <Check className="w-3 h-3" />
+                                    )}
+                                    Save
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between text-xs group">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-muted-foreground">Paid on {formatDate(p.date)}:</span>
+                                  <span className="font-semibold text-emerald-600">-{formatCurrencyINR(p.amount)}</span>
+                                </div>
+                                {form.status !== "cancelled" && (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      title="Payment edit karein"
+                                      onClick={() => startEditPayment(i, p)}
+                                      disabled={updatingPayment}
+                                      className="p-1 hover:bg-secondary text-muted-foreground hover:text-foreground rounded transition-colors"
+                                    >
+                                      <Pencil className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      title="Payment delete karein"
+                                      onClick={() => handleDeletePayment(i)}
+                                      disabled={updatingPayment}
+                                      className="p-1 hover:bg-destructive/10 text-muted-foreground hover:text-destructive rounded transition-colors"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                   <div className="flex items-center justify-between bg-red-500/10 px-2 py-1.5 rounded border border-red-500/20 mt-2">
@@ -1897,14 +2087,20 @@ Thank you for choosing ARIHANT COLLECTION !`;
                 </div>
 
                 {/* ── Quick Payment Collection ── */}
-                {form.status !== 'cancelled' && aggFinalDue > 0 && (
+                {form.status !== 'cancelled' && (
                   <div className="mt-3 border border-emerald-500/30 rounded-lg bg-emerald-500/5 p-3 space-y-2">
                     <div className="flex items-center gap-1.5">
                       <IndianRupee className="w-3.5 h-3.5 text-emerald-600" />
                       <span className="text-xs font-bold text-emerald-700 uppercase tracking-wide">Payment Jama Karein</span>
-                      <span className="ml-auto text-[10px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded px-1.5 py-0.5">
-                        Baaki: {formatCurrencyINR(aggFinalDue)}
-                      </span>
+                      {aggFinalDue > 0 ? (
+                        <span className="ml-auto text-[10px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded px-1.5 py-0.5">
+                          Baaki: {formatCurrencyINR(aggFinalDue)}
+                        </span>
+                      ) : (
+                        <span className="ml-auto text-[10px] font-semibold text-emerald-700 bg-emerald-100/80 border border-emerald-300 rounded px-1.5 py-0.5">
+                          Bill Cleared (0 Baaki)
+                        </span>
+                      )}
                     </div>
                     <div className="flex gap-2">
                       <div className="relative flex-1">
@@ -1915,7 +2111,7 @@ Thank you for choosing ARIHANT COLLECTION !`;
                           type="number"
                           min="1"
                           step="1"
-                          placeholder={`Amount (max ${aggFinalDue})`}
+                          placeholder={aggFinalDue > 0 ? `Amount (max ${aggFinalDue})` : "Nayi payment amount"}
                           value={quickPayAmount}
                           onChange={(e) => setQuickPayAmount(e.target.value)}
                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleQuickPayment(); } }}
@@ -1939,7 +2135,7 @@ Thank you for choosing ARIHANT COLLECTION !`;
                   </div>
                 )}
                 {form.status !== 'cancelled' && aggFinalDue <= 0 && (form.payments || []).length > 0 && (
-                  <div className="mt-3 flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-xs font-semibold">
+                  <div className="mt-2 flex items-center gap-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-xs font-semibold">
                     <IndianRupee className="w-3.5 h-3.5" /> Bill puri tarah clear ho chuka hai! ✓
                   </div>
                 )}

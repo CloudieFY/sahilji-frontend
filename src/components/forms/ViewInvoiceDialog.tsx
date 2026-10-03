@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Eye, Printer, Download, Send, Receipt, IndianRupee, PlusCircle, Loader2, Ban } from "lucide-react";
+import { Eye, Printer, Download, Send, Receipt, IndianRupee, PlusCircle, Loader2, Ban, Pencil, Trash2, Check, X } from "lucide-react";
 import { useStore } from "@/data/store";
 import { formatCurrencyINR, getBillRepresentative } from "@/lib/utils";
 import { printInvoiceHtml, getPoliciesHtml, getPoliciesColumnsHtml } from "@/lib/invoiceTemplate";
@@ -46,6 +46,10 @@ export function ViewInvoiceDialog({
   const [downloading, setDownloading] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [collectingPayment, setCollectingPayment] = useState(false);
+  const [editingPaymentIdx, setEditingPaymentIdx] = useState<number | null>(null);
+  const [editAmount, setEditAmount] = useState<string>("");
+  const [editDate, setEditDate] = useState<string>("");
+  const [updatingPayment, setUpdatingPayment] = useState<boolean>(false);
   const paymentInputRef = useRef<HTMLInputElement>(null);
 
   const relatedRentals = useMemo(() => {
@@ -193,6 +197,83 @@ export function ViewInvoiceDialog({
       toast.error("Payment save nahi ho saki. Dobara try karein.");
     } finally {
       setCollectingPayment(false);
+    }
+  }
+
+  function startEditPayment(idx: number, p: { amount: number; date: string }) {
+    setEditingPaymentIdx(idx);
+    setEditAmount(String(p.amount || 0));
+    setEditDate(p.date ? String(p.date).slice(0, 10) : new Date().toISOString().slice(0, 10));
+  }
+
+  function cancelEditPayment() {
+    setEditingPaymentIdx(null);
+    setEditAmount("");
+    setEditDate("");
+  }
+
+  async function handleSavePaymentEdit(idx: number) {
+    const newAmt = parseFloat(editAmount);
+    if (isNaN(newAmt) || newAmt <= 0) {
+      toast.error("Sahi amount darj karein (0 se zyada hona chahiye).");
+      return;
+    }
+    if (!editDate) {
+      toast.error("Sahi date darj karein.");
+      return;
+    }
+
+    setUpdatingPayment(true);
+    try {
+      const currentPayments = [...billPayments];
+      if (idx >= 0 && idx < currentPayments.length) {
+        currentPayments[idx] = { amount: newAmt, date: editDate };
+      }
+
+      const totalAdvance = currentPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+
+      await updateRental(mainBillRental.id, {
+        payments: currentPayments,
+        advance: totalAdvance,
+      } as any);
+
+      toast.success("Payment update ho gayi!");
+      setEditingPaymentIdx(null);
+    } catch (err) {
+      console.error(err);
+      toast.error("Payment update nahi ho saki.");
+    } finally {
+      setUpdatingPayment(false);
+    }
+  }
+
+  async function handleDeletePayment(idx: number) {
+    const pToDelete = billPayments[idx];
+    if (!pToDelete) return;
+
+    if (!window.confirm(`Kya aap yeh payment (${formatCurrencyINR(pToDelete.amount)}) delete karna chahte hain?`)) {
+      return;
+    }
+
+    setUpdatingPayment(true);
+    try {
+      const currentPayments = billPayments.filter((_, i) => i !== idx);
+      const totalAdvance = currentPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+
+      await updateRental(mainBillRental.id, {
+        payments: currentPayments,
+        advance: totalAdvance,
+      } as any);
+
+      toast.success("Payment delete ho gayi!");
+      if (editingPaymentIdx === idx) {
+        setEditingPaymentIdx(null);
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Payment delete nahi ho saki.");
+    } finally {
+      setUpdatingPayment(false);
     }
   }
 
@@ -947,16 +1028,124 @@ Thank you for choosing ARIHANT COLLECTION!`;
                     </div>
 
                     {billPayments.length > 0 && (
-                      <div className="bg-emerald-50 p-2 rounded border border-emerald-100 space-y-1 my-1">
-                        <p className="text-[10px] font-bold uppercase text-emerald-800">
-                          Payments Received
-                        </p>
-                        {billPayments.map((p, idx) => (
-                          <div key={idx} className="flex justify-between text-[11px] text-emerald-900">
-                            <span>Paid on {formatDate(p.date)}:</span>
-                            <span className="font-bold">-{formatCurrencyINR(p.amount)}</span>
-                          </div>
-                        ))}
+                      <div className="bg-emerald-50 p-2.5 rounded-lg border border-emerald-100 space-y-2 my-1">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+                            Payments Received ({billPayments.length})
+                          </p>
+                          {canCollectPayment && (
+                            <span className="text-[10px] text-emerald-600 italic">
+                              Edit / Delete enabled
+                            </span>
+                          )}
+                        </div>
+                        {billPayments.map((p, idx) => {
+                          const isEditing = editingPaymentIdx === idx;
+                          return (
+                            <div
+                              key={idx}
+                              className={`rounded p-1.5 transition-colors ${
+                                isEditing
+                                  ? "bg-white border border-emerald-300 shadow-sm"
+                                  : "hover:bg-emerald-100/60"
+                              }`}
+                            >
+                              {isEditing ? (
+                                <div className="space-y-2 py-1">
+                                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                                    <span>Edit Payment #{idx + 1}</span>
+                                    <button
+                                      type="button"
+                                      onClick={cancelEditPayment}
+                                      className="text-slate-400 hover:text-slate-600"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <div>
+                                      <label className="text-[10px] text-slate-500 font-medium block">Amount (₹)</label>
+                                      <Input
+                                        type="number"
+                                        min="1"
+                                        step="1"
+                                        value={editAmount}
+                                        onChange={(e) => setEditAmount(e.target.value)}
+                                        className="h-7 text-xs bg-white border-slate-300"
+                                        disabled={updatingPayment}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[10px] text-slate-500 font-medium block">Date</label>
+                                      <Input
+                                        type="date"
+                                        value={editDate}
+                                        onChange={(e) => setEditDate(e.target.value)}
+                                        className="h-7 text-xs bg-white border-slate-300"
+                                        disabled={updatingPayment}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="flex justify-end gap-1.5 pt-1">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={cancelEditPayment}
+                                      disabled={updatingPayment}
+                                      className="h-6 px-2 text-[11px] text-slate-600"
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={() => handleSavePaymentEdit(idx)}
+                                      disabled={updatingPayment || !editAmount}
+                                      className="h-6 px-2.5 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
+                                    >
+                                      {updatingPayment ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <Check className="w-3 h-3" />
+                                      )}
+                                      Save
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-between text-[11px] text-emerald-900 group">
+                                  <div className="flex items-center gap-1.5">
+                                    <span>Paid on {formatDate(p.date)}:</span>
+                                    <span className="font-bold">-{formatCurrencyINR(p.amount)}</span>
+                                  </div>
+                                  {canCollectPayment && status !== "cancelled" && (
+                                    <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100">
+                                      <button
+                                        type="button"
+                                        title="Payment edit karein"
+                                        onClick={() => startEditPayment(idx, p)}
+                                        disabled={updatingPayment}
+                                        className="p-1 hover:bg-emerald-200 text-emerald-800 rounded transition-colors"
+                                      >
+                                        <Pencil className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        title="Payment delete karein"
+                                        onClick={() => handleDeletePayment(idx)}
+                                        disabled={updatingPayment}
+                                        className="p-1 hover:bg-rose-100 text-rose-600 rounded transition-colors"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
 
@@ -977,16 +1166,22 @@ Thank you for choosing ARIHANT COLLECTION!`;
             </div>
 
             {/* ── Payment Collection Section ── */}
-            {canCollectPayment && aggFinalDue > 0 && status !== "cancelled" && (
+            {canCollectPayment && status !== "cancelled" && (
               <div className="mt-4 border border-emerald-200 rounded-lg bg-emerald-50/60 p-4 space-y-3">
                 <div className="flex items-center gap-2">
                   <IndianRupee className="w-4 h-4 text-emerald-700" />
                   <p className="text-sm font-bold text-emerald-800 uppercase tracking-wide">
                     Payment Jama Karein
                   </p>
-                  <span className="ml-auto text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded px-2 py-0.5">
-                    Baaki: {formatCurrencyINR(aggFinalDue)}
-                  </span>
+                  {aggFinalDue > 0 ? (
+                    <span className="ml-auto text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded px-2 py-0.5">
+                      Baaki: {formatCurrencyINR(aggFinalDue)}
+                    </span>
+                  ) : (
+                    <span className="ml-auto text-xs font-semibold text-emerald-700 bg-emerald-100/80 border border-emerald-300 rounded px-2 py-0.5">
+                      Bill Cleared (0 Baaki)
+                    </span>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
@@ -997,7 +1192,7 @@ Thank you for choosing ARIHANT COLLECTION!`;
                       type="number"
                       min="1"
                       step="1"
-                      placeholder={`Amount darjj karein (max ${aggFinalDue})`}
+                      placeholder={aggFinalDue > 0 ? `Amount darjj karein (max ${aggFinalDue})` : "Nayi payment amount"}
                       value={paymentAmount}
                       onChange={(e) => setPaymentAmount(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") handleCollectPayment(); }}
@@ -1024,8 +1219,8 @@ Thank you for choosing ARIHANT COLLECTION!`;
                 </p>
               </div>
             )}
-            {canCollectPayment && aggFinalDue <= 0 && billPayments.length > 0 && (
-              <div className="mt-4 flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+            {aggFinalDue <= 0 && billPayments.length > 0 && (
+              <div className="mt-3 flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
                 <IndianRupee className="w-4 h-4" />
                 <p className="text-sm font-semibold">Bill puri tarah clear ho chuka hai! ✓</p>
               </div>

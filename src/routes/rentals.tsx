@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 
 
 import { AppShell } from "@/components/AppShell";
@@ -132,22 +132,42 @@ export default function RentalsPage() {
     return !query || searchable.includes(query);
   });
 
-  const groupedBills = Array.from(
-    filteredRentals.reduce((groups, rental) => {
-      const key = rental.billNo ? rental.billNo : rental.id;
-      const existing = groups.get(key);
-      if (existing) {
-        existing.rentals.push(rental);
-      } else {
-        groups.set(key, {
-          key,
-          rentals: [rental],
-          representative: rental,
-        });
+  const groupedBills = useMemo(() => {
+    const list = Array.from(
+      filteredRentals.reduce((groups, rental) => {
+        const key = rental.billNo ? rental.billNo : rental.id;
+        const existing = groups.get(key);
+        if (existing) {
+          existing.rentals.push(rental);
+        } else {
+          groups.set(key, {
+            key,
+            rentals: [rental],
+            representative: rental,
+          });
+        }
+        return groups;
+      }, new Map<string, { key: string; rentals: typeof rentals; representative: (typeof rentals)[number] }>()).values(),
+    );
+
+    // Sort bills: latest/highest bill number on top, descending sequentially
+    list.sort((a, b) => {
+      const aMatch = String(a.key || "").match(/(\d+)/);
+      const bMatch = String(b.key || "").match(/(\d+)/);
+      const aNum = aMatch ? parseInt(aMatch[1], 10) : 0;
+      const bNum = bMatch ? parseInt(bMatch[1], 10) : 0;
+
+      if (aNum !== bNum) {
+        return bNum - aNum; // Highest / latest bill on top
       }
-      return groups;
-    }, new Map<string, { key: string; rentals: typeof rentals; representative: (typeof rentals)[number] }>()).values(),
-  );
+
+      const aDate = a.representative.createdAt ? new Date(a.representative.createdAt).getTime() : 0;
+      const bDate = b.representative.createdAt ? new Date(b.representative.createdAt).getTime() : 0;
+      return bDate - aDate;
+    });
+
+    return list;
+  }, [filteredRentals]);
 
   const getUniqueBillBalances = (billsList: typeof groupedBills) => {
     return billsList.reduce((total, bill) => total + getBillDueAmount(bill.rentals, rentals), 0);

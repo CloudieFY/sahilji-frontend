@@ -78,9 +78,16 @@ export default function CustomerDetailPage({ id }: { id: string }) {
 
   const customerRentals = useMemo(
     () =>
-      rentals
+      [...rentals]
         .filter((r) => r.customerId === id)
-        .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")),
+        .sort((a, b) => {
+          const aMatch = String(a.billNo || a.id || "").match(/(\d+)/);
+          const bMatch = String(b.billNo || b.id || "").match(/(\d+)/);
+          const aNum = aMatch ? parseInt(aMatch[1], 10) : 0;
+          const bNum = bMatch ? parseInt(bMatch[1], 10) : 0;
+          if (aNum !== bNum) return bNum - aNum;
+          return (b.createdAt || "").localeCompare(a.createdAt || "");
+        }),
     [rentals, id],
   );
 
