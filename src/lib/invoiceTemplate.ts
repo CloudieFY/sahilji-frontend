@@ -27,11 +27,18 @@ export function getPoliciesColumnsHtml() {
   return `<div style="font-size: 9px; line-height: 1.45; color: #475569;">${policies.replace(/\n/g, "<br/>")}</div>`;
 }
 
-export function formatDate(dateStr: string) {
+export function formatDate(dateStr: string | Date | undefined) {
   if (!dateStr) return "";
-  const parts = dateStr.split("T")[0].split("-");
-  if (parts.length !== 3) return dateStr;
-  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  if (typeof dateStr === "string" && dateStr.includes("T")) {
+    const parts = dateStr.split("T")[0].split("-");
+    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return String(dateStr);
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
 }
 
 /**
@@ -221,7 +228,7 @@ export function getInvoiceContent({
               })()}
             </h2>
             <p># ${form.billNo || "DRAFT"}</p>
-            <p>Date: ${form.billMakingDate ? new Date(form.billMakingDate).toLocaleDateString('en-IN') : "-"}</p>
+            <p>Date: ${form.billMakingDate ? formatDate(form.billMakingDate) : formatDate(new Date())}</p>
 
           </div>
         </div>
@@ -277,9 +284,11 @@ export function getInvoiceContent({
             <div class="row"><span style="color: #e11d48;">Cancellation Charges Deducted</span><span style="color: #e11d48;">-${formatCurrencyINR(form.cancellationCharge || 0)}</span></div>
             <div class="row total" style="color: #059669; border-top: 2px solid #059669;"><span>Refund ${form.refundPaid ? "Returned" : "Due"}</span><span>${formatCurrencyINR(form.refundAmount ?? Math.max(0, totalPaid - (form.cancellationCharge || 0)))}</span></div>
           ` : `
-            <div class="row"><span>Subtotal</span><span>${formatCurrencyINR(piecesTotal)}</span></div>
-            <div class="row"><span>Security Deposit Received</span><span>${formatCurrencyINR(form.securityAmount)}</span></div>
-            <div class="row"><span>Discount</span><span>-${formatCurrencyINR(form.discount)}</span></div>
+            <div class="row"><span>Total Rent</span><span>${formatCurrencyINR(piecesTotal)}</span></div>
+            <div class="row"><span>Security Deposit</span><span>${formatCurrencyINR(form.securityAmount || 0)}</span></div>
+            <div class="row"><span>Discount</span><span>-${formatCurrencyINR(form.discount || 0)}</span></div>
+            <div class="row" style="font-weight: bold; border-top: 1px solid #ccc; padding-top: 4px; margin-top: 2px;"><span>Total Bill</span><span>${formatCurrencyINR(piecesTotal + (form.securityAmount || 0) - (form.discount || 0))}</span></div>
+            <div class="row" style="color: #166534;"><span>Amount Paid</span><span>-${formatCurrencyINR(totalPaid)}</span></div>
             ${(form.payments && form.payments.length > 0) ? `
               <div class="row" style="padding-top: 4px; margin-top: 2px; border-top: 1px solid #eaeaea; flex-direction: column; align-items: flex-start; gap: 2px;">
                 <div style="width: 100%; display: flex; justify-content: space-between;"><strong>Payments Received</strong></div>

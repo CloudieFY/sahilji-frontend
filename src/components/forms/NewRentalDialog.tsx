@@ -461,6 +461,7 @@ export function NewRentalDialog({
         securityAmount: parsed.data.securityAmount,
         signature: parsed.data.signature || "",
         status: parsed.data.status,
+        billMakingDate: new Date().toISOString(),
         pieces: piecesData.map((p) => {
           const ratio = ratioBase > 0 ? (p.lineTotal || 0) / ratioBase : 1 / piecesData.length;
           return {

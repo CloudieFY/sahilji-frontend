@@ -88,6 +88,7 @@ export interface Rental {
   returnedAt?: string;
   penalty: number;
   total: number;
+  billMakingDate?: string;
   status: 'active' | 'upcoming' | 'returned' | 'overdue' | 'cancelled';
   createdAt: string;
   updatedAt: string;

@@ -18,11 +18,18 @@ import { printInvoiceHtml, getPoliciesHtml, getPoliciesColumnsHtml } from "@/lib
 import { CancelOrderDialog } from "./CancelOrderDialog";
 import type { Rental } from "@/data/mock";
 
-function formatDate(dateStr: string) {
+function formatDate(dateStr: string | Date | undefined) {
   if (!dateStr) return "-";
-  const parts = dateStr.split("T")[0].split("-");
-  if (parts.length !== 3) return dateStr;
-  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  if (typeof dateStr === "string" && dateStr.includes("T")) {
+    const parts = dateStr.split("T")[0].split("-");
+    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return String(dateStr);
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
 }
 
 export function ViewInvoiceDialog({
@@ -62,9 +69,14 @@ export function ViewInvoiceDialog({
       const isCancelled = r.status === "cancelled";
       const rQuantity = Math.max(1, (r as any).quantity ?? 1);
       const rLostQuantity = (r as any).lostQuantity ?? 0;
-      const rRate = (r as any).rate ?? (rItem ? rItem.pricePerDay : 0);
+      const rRate =
+        (r as any).rate !== undefined && (r as any).rate !== null && !isNaN(Number((r as any).rate))
+          ? Number((r as any).rate)
+          : rItem
+          ? Number(rItem.pricePerDay) || 0
+          : 0;
       const rCancellationCharge = Number(r.cancellationCharge || 0);
-      const rSubtotal = isCancelled ? 0 : (Number(r.total) || rRate * rQuantity);
+      const rSubtotal = isCancelled ? 0 : rRate * rQuantity;
       const rDeliveryDate = r.deliveryDate || r.startDate || "";
       const rEndDate = r.endDate || "";
       const rDeliveryTime = (r as any).deliveryTime || "";
@@ -98,13 +110,42 @@ export function ViewInvoiceDialog({
   const aggTotal = aggSubtotal + aggCancellationCharges + aggSecurity - aggDiscount;
 
   const billPayments = useMemo(() => {
-    return relatedRentals.flatMap((r) => r.payments || []);
-  }, [relatedRentals]);
+    const list = relatedRentals
+      .flatMap((r) => r.payments || [])
+      .filter((p) => Number(p.amount) > 0);
+    if (list.length === 0) {
+      const advanceSum = relatedRentals.reduce(
+        (sum, r) => sum + (Number(r.advance) || 0),
+        0,
+      );
+      if (advanceSum > 0) {
+        return [
+          {
+            amount: advanceSum,
+            date:
+              (mainBillRental as any).billMakingDate ||
+              (mainBillRental as any).createdAt ||
+              (mainBillRental as any).startDate ||
+              new Date().toISOString(),
+          },
+        ];
+      }
+    }
+    return list;
+  }, [relatedRentals, mainBillRental]);
 
-  const aggPaid = billPayments.reduce(
-    (sum, p) => sum + (Number(p.amount) || 0),
-    0,
-  );
+  const aggPaid = useMemo(() => {
+    const paymentsSum = billPayments.reduce(
+      (sum, p) => sum + (Number(p.amount) || 0),
+      0,
+    );
+    const advanceSum = relatedRentals.reduce(
+      (sum, r) => sum + (Number(r.advance) || 0),
+      0,
+    );
+    return Math.max(paymentsSum, advanceSum);
+  }, [billPayments, relatedRentals]);
+
   const aggFinalDue = Math.max(0, aggTotal - aggPaid);
   const isSecurityReturned = Boolean((mainBillRental as any).securityReturned);
   const aggSecurityRefundDue = isSecurityReturned ? 0 : aggSecurity;
@@ -155,9 +196,13 @@ export function ViewInvoiceDialog({
     }
   }
 
-  const billMakingDate = (mainBillRental as any).billMakingDate
-    ? new Date((mainBillRental as any).billMakingDate).toLocaleDateString("en-IN")
-    : "-";
+  const rawBillDate =
+    (mainBillRental as any).billMakingDate ||
+    (mainBillRental as any).createdAt ||
+    mainBillRental.deliveryDate ||
+    mainBillRental.startDate;
+
+  const billMakingDate = rawBillDate ? formatDate(rawBillDate) : formatDate(new Date().toISOString());
 
   const logoUrl =
     typeof window !== "undefined"
@@ -334,6 +379,10 @@ export function ViewInvoiceDialog({
                 <span>Total Bill:</span>
                 <span>${formatCurrencyINR(aggTotal)}</span>
               </div>
+              <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #166534;">
+                <span>Amount Paid:</span>
+                <span style="font-weight: 600;">-${formatCurrencyINR(aggPaid)}</span>
+              </div>
               ${
                 billPayments.length > 0
                   ? `
@@ -345,11 +394,11 @@ export function ViewInvoiceDialog({
                   : ""
               }
               <div style="display: flex; justify-content: space-between; padding: 2px 0; color: #b45309;">
-                <span>Security Refund:</span>
+                <span>Security Refund Due:</span>
                 <span style="font-weight: 600;">${formatCurrencyINR(aggSecurityRefundDue)}</span>
               </div>
               <div style="display: flex; justify-content: space-between; padding: 4px 0; border-top: 2px solid #0f172a; font-size: 12px; font-weight: bold; color: #d97706; margin-top: 2px;">
-                <span>Balance Due:</span>
+                <span>Rental Balance Due:</span>
                 <span>${formatCurrencyINR(aggFinalDue)}</span>
               </div>
             `}
@@ -890,6 +939,11 @@ Thank you for choosing ARIHANT COLLECTION!`;
                     <div className="flex justify-between font-bold border-t border-slate-300 pt-1 text-slate-900">
                       <span>Total Bill:</span>
                       <span>{formatCurrencyINR(aggTotal)}</span>
+                    </div>
+
+                    <div className="flex justify-between text-emerald-700">
+                      <span>Amount Paid:</span>
+                      <span className="font-semibold">-{formatCurrencyINR(aggPaid)}</span>
                     </div>
 
                     {billPayments.length > 0 && (

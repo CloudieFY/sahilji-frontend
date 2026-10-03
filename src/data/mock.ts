@@ -78,6 +78,8 @@ export interface Rental {
   returnedAt?: string;
   penalty?: number;
   total: number;
+  billMakingDate?: string;
+  createdAt?: string;
   status: RentalStatus;
 }
 

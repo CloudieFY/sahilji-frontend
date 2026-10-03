@@ -121,6 +121,8 @@ function transformRental(rental: any): Rental {
     endDate: formatDateTime(rental.endDate),
     endTime: rental.endTime || "10:00",
     endTimePeriod: rental.endTimePeriod || "",
+    billMakingDate: formatDateTime(rental.billMakingDate || rental.createdAt),
+    createdAt: formatDateTime(rental.createdAt),
   };
 }
 
