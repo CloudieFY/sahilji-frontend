@@ -72,6 +72,11 @@ export interface Rental {
   remark: string;
   remarkCompleted?: boolean;
   remarkConfirmedBy?: string;
+  drycleanCompleted?: boolean;
+  drycleanCompletedBy?: string;
+  drycleanAdminConfirmed?: boolean;
+  drycleanAdminConfirmedBy?: string;
+  drycleanAdminConfirmedAt?: string;
   adminReconfirmed?: boolean;
   adminReconfirmedBy?: string;
   adminReconfirmedAt?: string;
@@ -79,6 +84,8 @@ export interface Rental {
   securityAmount: number;
   securityReturned?: boolean;
   securityReturnedAt?: string;
+  securityRefundNote?: string;
+  securityRefundDeduction?: number;
   cancellationCharge?: number;
   cancellationReason?: string;
   cancelledAt?: string;
